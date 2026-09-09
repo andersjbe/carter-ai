@@ -6,6 +6,20 @@ import type { Id } from "./_generated/dataModel";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
+const findingResultValidator = v.object({
+  title: v.string(),
+  url: v.string(),
+  source: v.union(
+    v.literal("amazon"),
+    v.literal("etsy"),
+    v.literal("web"),
+  ),
+  summary: v.union(v.string(), v.null()),
+  price: v.union(v.number(), v.null()),
+  currency: v.union(v.string(), v.null()),
+  imageUrl: v.union(v.string(), v.null()),
+});
+
 function detectSource(url: string): "amazon" | "etsy" | "web" {
   const lower = url.toLowerCase();
   if (lower.includes("amazon.") || lower.includes("amzn.")) return "amazon";
@@ -19,6 +33,111 @@ function parsePrice(text: string | undefined): number | undefined {
   if (!match) return undefined;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : undefined;
+}
+
+function asHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    return undefined;
+  }
+  // Skip tiny tracking pixels / icons when possible
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.includes("favicon") ||
+    lower.includes("sprite") ||
+    lower.endsWith(".svg")
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function imageFromMarkdown(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const match = text.match(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/);
+  return asHttpUrl(match?.[1]);
+}
+
+function imageFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!metadata) return undefined;
+  return (
+    asHttpUrl(metadata.ogImage) ??
+    asHttpUrl(metadata["og:image"]) ??
+    asHttpUrl(metadata.image) ??
+    asHttpUrl(metadata.twitterImage) ??
+    asHttpUrl(metadata["twitter:image"])
+  );
+}
+
+function imageFromProduct(product: unknown): string | undefined {
+  if (!product || typeof product !== "object") return undefined;
+  const root = product as {
+    image?: unknown;
+    imageUrl?: unknown;
+    images?: unknown;
+    variants?: unknown;
+  };
+  const direct =
+    asHttpUrl(root.imageUrl) ??
+    asHttpUrl(root.image) ??
+    (Array.isArray(root.images)
+      ? asHttpUrl(
+          typeof root.images[0] === "string"
+            ? root.images[0]
+            : (root.images[0] as { url?: unknown } | undefined)?.url,
+        )
+      : undefined);
+  if (direct) return direct;
+
+  if (!Array.isArray(root.variants)) return undefined;
+  for (const variant of root.variants) {
+    if (!variant || typeof variant !== "object") continue;
+    const images = (variant as { images?: unknown }).images;
+    if (!Array.isArray(images) || images.length === 0) continue;
+    const first = images[0];
+    const url =
+      typeof first === "string"
+        ? asHttpUrl(first)
+        : asHttpUrl((first as { url?: unknown })?.url);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+function extractImageUrl(hit: Record<string, unknown>): string | undefined {
+  const metadata =
+    hit.metadata && typeof hit.metadata === "object"
+      ? (hit.metadata as Record<string, unknown>)
+      : undefined;
+
+  const images = hit.images;
+  const firstListedImage = Array.isArray(images)
+    ? asHttpUrl(
+        typeof images[0] === "string"
+          ? images[0]
+          : (images[0] as { url?: unknown } | undefined)?.url,
+      )
+    : undefined;
+
+  return (
+    imageFromProduct(hit.product) ??
+    asHttpUrl(hit.imageUrl) ??
+    asHttpUrl(hit.image) ??
+    firstListedImage ??
+    imageFromMetadata(metadata) ??
+    imageFromMarkdown(
+      typeof hit.markdown === "string"
+        ? hit.markdown
+        : typeof hit.description === "string"
+          ? hit.description
+          : typeof hit.summary === "string"
+            ? hit.summary
+            : undefined,
+    )
+  );
 }
 
 function extractSearchHits(
@@ -57,6 +176,23 @@ function extractSearchHits(
   return [];
 }
 
+function priceFromProduct(product: unknown): number | undefined {
+  if (!product || typeof product !== "object") return undefined;
+  const root = product as {
+    price?: unknown;
+    variants?: unknown;
+  };
+  if (typeof root.price === "number") return root.price;
+  if (typeof root.price === "string") return parsePrice(root.price);
+  if (!Array.isArray(root.variants) || root.variants.length === 0) {
+    return undefined;
+  }
+  const variant = root.variants[0] as { price?: unknown };
+  if (typeof variant.price === "number") return variant.price;
+  if (typeof variant.price === "string") return parsePrice(variant.price);
+  return undefined;
+}
+
 export const searchAndStore = internalAction({
   args: {
     sessionId: v.id("sessions"),
@@ -68,18 +204,7 @@ export const searchAndStore = internalAction({
   returns: v.object({
     stored: v.number(),
     created: v.number(),
-    results: v.array(
-      v.object({
-        title: v.string(),
-        url: v.string(),
-        source: v.union(
-          v.literal("amazon"),
-          v.literal("etsy"),
-          v.literal("web"),
-        ),
-        summary: v.union(v.string(), v.null()),
-      }),
-    ),
+    results: v.array(findingResultValidator),
   }),
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 6, 10);
@@ -87,7 +212,7 @@ export const searchAndStore = internalAction({
       limit,
       includeDomains: args.includeDomains,
       scrapeOptions: {
-        formats: ["markdown", "summary"],
+        formats: ["markdown", "summary", "images"],
         onlyMainContent: true,
       },
     });
@@ -103,6 +228,9 @@ export const searchAndStore = internalAction({
       url: string;
       source: "amazon" | "etsy" | "web";
       summary: string | null;
+      price: number | null;
+      currency: string | null;
+      imageUrl: string | null;
     }> = [];
 
     for (const hit of hits.slice(0, limit)) {
@@ -126,7 +254,11 @@ export const searchAndStore = internalAction({
               : typeof hit.markdown === "string"
                 ? hit.markdown.slice(0, 400)
                 : null;
-      const price = parsePrice(summary ?? undefined) ?? parsePrice(title);
+      const price =
+        priceFromProduct(hit.product) ??
+        parsePrice(summary ?? undefined) ??
+        parsePrice(title);
+      const imageUrl = extractImageUrl(hit);
 
       const upserted = await ctx.runMutation(internal.findings.upsertFinding, {
         queryId: args.queryId,
@@ -137,10 +269,19 @@ export const searchAndStore = internalAction({
         currency: price !== undefined ? "USD" : undefined,
         source,
         summary: summary ?? undefined,
+        imageUrl: imageUrl ?? undefined,
       });
       stored += 1;
       if (upserted.created) created += 1;
-      results.push({ title: title || url, url, source, summary });
+      results.push({
+        title: title || url,
+        url,
+        source,
+        summary,
+        price: price ?? null,
+        currency: price !== undefined ? "USD" : null,
+        imageUrl: imageUrl ?? null,
+      });
     }
 
     await ctx.runMutation(internal.openQueries.touchChecked, {
@@ -157,48 +298,78 @@ export const scrapeProductPage = internalAction({
     queryId: v.id("openQueries"),
     url: v.string(),
   },
-  returns: v.object({
-    title: v.string(),
-    url: v.string(),
-    price: v.union(v.number(), v.null()),
-    summary: v.union(v.string(), v.null()),
-    source: v.union(v.literal("amazon"), v.literal("etsy"), v.literal("web")),
-  }),
+  returns: findingResultValidator,
   handler: async (ctx, args) => {
     const page = await firecrawl.scrape(ctx, args.url, {
       formats: [
         "markdown",
         "summary",
+        "images",
+        "product",
         {
           type: "json",
           prompt:
-            "Extract product title, price number, currency, and a one-sentence summary.",
+            "Extract product title, price number, currency, a one-sentence summary, and the main product image URL.",
         },
       ],
       onlyMainContent: true,
     });
 
-    const json = (page as { json?: Record<string, unknown> }).json ?? {};
+    const pageRecord = page as Record<string, unknown>;
+    const json =
+      pageRecord.json && typeof pageRecord.json === "object"
+        ? (pageRecord.json as Record<string, unknown>)
+        : {};
+    const metadata =
+      pageRecord.metadata && typeof pageRecord.metadata === "object"
+        ? (pageRecord.metadata as Record<string, unknown>)
+        : undefined;
+    const product = pageRecord.product;
+
     const title = String(
-      json.title ??
-        (page as { metadata?: { title?: string } }).metadata?.title ??
+      (product &&
+      typeof product === "object" &&
+      typeof (product as { title?: unknown }).title === "string"
+        ? (product as { title: string }).title
+        : null) ??
+        json.title ??
+        metadata?.title ??
         args.url,
     ).slice(0, 200);
+
     const summary =
       typeof json.summary === "string"
         ? json.summary
-        : typeof (page as { summary?: string }).summary === "string"
-          ? (page as { summary: string }).summary
-          : typeof (page as { markdown?: string }).markdown === "string"
-            ? String((page as { markdown: string }).markdown).slice(0, 500)
-            : null;
+        : typeof pageRecord.summary === "string"
+          ? pageRecord.summary
+          : product &&
+              typeof product === "object" &&
+              typeof (product as { description?: unknown }).description ===
+                "string"
+            ? String((product as { description: string }).description).slice(
+                0,
+                500,
+              )
+            : typeof pageRecord.markdown === "string"
+              ? String(pageRecord.markdown).slice(0, 500)
+              : null;
+
     const price =
       typeof json.price === "number"
         ? json.price
-        : parsePrice(String(json.price ?? summary ?? ""));
+        : priceFromProduct(product) ??
+          parsePrice(String(json.price ?? summary ?? ""));
     const currency =
-      typeof json.currency === "string" ? json.currency : price ? "USD" : undefined;
+      typeof json.currency === "string"
+        ? json.currency
+        : price !== undefined
+          ? "USD"
+          : undefined;
     const source = detectSource(args.url);
+    const imageUrl =
+      asHttpUrl(json.imageUrl) ??
+      asHttpUrl(json.image) ??
+      extractImageUrl(pageRecord);
 
     await ctx.runMutation(internal.findings.upsertFinding, {
       queryId: args.queryId as Id<"openQueries">,
@@ -209,14 +380,17 @@ export const scrapeProductPage = internalAction({
       currency,
       source,
       summary: summary ?? undefined,
+      imageUrl: imageUrl ?? undefined,
     });
 
     return {
       title,
       url: args.url,
       price: price ?? null,
+      currency: currency ?? null,
       summary,
       source,
+      imageUrl: imageUrl ?? null,
     };
   },
 });

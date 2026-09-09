@@ -68,6 +68,7 @@ export const listForQuery = query({
       currency: v.union(v.string(), v.null()),
       source: sourceValidator,
       summary: v.union(v.string(), v.null()),
+      imageUrl: v.union(v.string(), v.null()),
       isNew: v.boolean(),
       seenAt: v.number(),
     }),
@@ -86,6 +87,7 @@ export const listForQuery = query({
       currency: row.currency ?? null,
       source: row.source,
       summary: row.summary ?? null,
+      imageUrl: row.imageUrl ?? null,
       isNew: row.isNew,
       seenAt: row.seenAt,
     }));
@@ -178,6 +180,7 @@ export const listByQueryInternal = internalQuery({
       currency: v.union(v.string(), v.null()),
       source: sourceValidator,
       summary: v.union(v.string(), v.null()),
+      imageUrl: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -193,6 +196,7 @@ export const listByQueryInternal = internalQuery({
       currency: row.currency ?? null,
       source: row.source,
       summary: row.summary ?? null,
+      imageUrl: row.imageUrl ?? null,
     }));
   },
 });

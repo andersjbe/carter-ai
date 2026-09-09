@@ -113,6 +113,9 @@ const searchProducts = createTool({
       url: string;
       source: string;
       summary: string | null;
+      price: number | null;
+      currency: string | null;
+      imageUrl: string | null;
     }>;
   }> => {
     const includeDomains =
@@ -140,7 +143,7 @@ const searchProducts = createTool({
 
 const scrapeProduct = createTool({
   description:
-    "Scrape a specific product page for title, price, and summary, then store it as a finding.",
+    "Scrape a specific product page for title, price, summary, and image, then store it as a finding.",
   inputSchema: z.object({
     queryId: z.string(),
     url: z.string().url(),
@@ -152,8 +155,10 @@ const scrapeProduct = createTool({
     title: string;
     url: string;
     price: number | null;
+    currency: string | null;
     summary: string | null;
     source: string;
+    imageUrl: string | null;
   }> => {
     return await ctx.runAction(internal.firecrawl.scrapeProductPage, {
       sessionId: ctx.sessionId,
@@ -176,29 +181,25 @@ const listFindings = createTool({
       title: string;
       url: string;
       price: number | null;
+      currency: string | null;
       source: string;
       summary: string | null;
+      imageUrl: string | null;
     }>
   > => {
     if (args.queryId) {
       const rows = await ctx.runQuery(internal.findings.listByQueryInternal, {
         queryId: args.queryId as Id<"openQueries">,
       });
-      return rows.map(
-        (r: {
-          title: string;
-          url: string;
-          price: number | null;
-          source: string;
-          summary: string | null;
-        }) => ({
-          title: r.title,
-          url: r.url,
-          price: r.price,
-          source: r.source,
-          summary: r.summary,
-        }),
-      );
+      return rows.map((r) => ({
+        title: r.title,
+        url: r.url,
+        price: r.price,
+        currency: r.currency,
+        source: r.source,
+        summary: r.summary,
+        imageUrl: r.imageUrl,
+      }));
     }
     const active = await ctx.runQuery(internal.openQueries.listActive, {});
     const mine = active
@@ -208,29 +209,25 @@ const listFindings = createTool({
       title: string;
       url: string;
       price: number | null;
+      currency: string | null;
       source: string;
       summary: string | null;
+      imageUrl: string | null;
     }> = [];
     for (const q of mine) {
       const rows = await ctx.runQuery(internal.findings.listByQueryInternal, {
         queryId: q._id,
       });
       out.push(
-        ...rows.map(
-          (r: {
-            title: string;
-            url: string;
-            price: number | null;
-            source: string;
-            summary: string | null;
-          }) => ({
-            title: r.title,
-            url: r.url,
-            price: r.price,
-            source: r.source,
-            summary: r.summary,
-          }),
-        ),
+        ...rows.map((r) => ({
+          title: r.title,
+          url: r.url,
+          price: r.price,
+          currency: r.currency,
+          source: r.source,
+          summary: r.summary,
+          imageUrl: r.imageUrl,
+        })),
       );
     }
     return out.slice(0, 20);
@@ -266,7 +263,7 @@ Your job:
 2. Save what you learn with updatePreferences as details emerge.
 3. Only after you understand enough, create an open shopping query with createOpenQuery.
 4. Then search with searchProducts (Amazon, Etsy, or web) and optionally scrapeProduct for promising URLs.
-5. Present findings conversationally with links, prices when known, and why they fit.
+5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown.
 6. Offer email alerts for ongoing open queries via setEmailAlerts when the user wants follow-ups on sales or new products.
 
 Rules:
@@ -274,6 +271,7 @@ Rules:
 - Prefer a few high-quality clarifying questions over a long questionnaire.
 - Be warm, concise, and opinionated in a helpful way — not salesy.
 - Never invent product URLs or prices; only cite tool results.
+- Never dump numbered markdown product lists, markdown images, or Price/Summary/Rating bullet blocks — keep the reply to a few sentences of guidance.
 - If a search fails or returns nothing, say so and suggest refining the brief.`,
   tools: {
     updatePreferences,

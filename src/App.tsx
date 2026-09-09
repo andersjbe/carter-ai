@@ -11,6 +11,17 @@ import type { Id } from "../convex/_generated/dataModel";
 
 const CLIENT_KEY = "carter_client_key";
 
+type ProductCardData = {
+  title: string;
+  url: string;
+  price: number | null;
+  currency: string | null;
+  source: string | null;
+  summary: string | null;
+  imageUrl: string | null;
+  isNew?: boolean;
+};
+
 function getClientKey() {
   const existing = localStorage.getItem(CLIENT_KEY);
   if (existing) return existing;
@@ -22,15 +33,177 @@ function getClientKey() {
   return next;
 }
 
-function MessageBubble({ message }: { message: UIMessage }) {
+function formatPrice(price: number | null, currency: string | null) {
+  if (price == null) return null;
+  const code = currency ?? "USD";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: 2,
+    }).format(price);
+  } catch {
+    return `${code} ${price}`;
+  }
+}
+
+function normalizeUrlKey(url: string) {
+  return url.trim().toLowerCase().replace(/\/+$/, "");
+}
+
+function asProductCard(value: unknown): ProductCardData | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const title = typeof row.title === "string" ? row.title.trim() : "";
+  const url = typeof row.url === "string" ? row.url.trim() : "";
+  if (!title || !url) return null;
+  return {
+    title,
+    url,
+    price: typeof row.price === "number" ? row.price : null,
+    currency: typeof row.currency === "string" ? row.currency : null,
+    source: typeof row.source === "string" ? row.source : null,
+    summary: typeof row.summary === "string" ? row.summary : null,
+    imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
+  };
+}
+
+function toolNameFromPart(part: Record<string, unknown>): string | null {
+  if (typeof part.toolName === "string") return part.toolName;
+  if (typeof part.type === "string" && part.type.startsWith("tool-")) {
+    return part.type.slice("tool-".length);
+  }
+  return null;
+}
+
+function productsFromToolOutput(output: unknown): ProductCardData[] {
+  if (!output) return [];
+  if (Array.isArray(output)) {
+    return output
+      .map(asProductCard)
+      .filter((item): item is ProductCardData => item != null);
+  }
+  if (typeof output !== "object") return [];
+  const record = output as Record<string, unknown>;
+  if (Array.isArray(record.results)) {
+    return record.results
+      .map(asProductCard)
+      .filter((item): item is ProductCardData => item != null);
+  }
+  const single = asProductCard(record);
+  return single ? [single] : [];
+}
+
+function extractProductsFromMessage(
+  message: UIMessage,
+  findingsByUrl: Map<string, ProductCardData>,
+): ProductCardData[] {
+  if (message.role !== "assistant" || !Array.isArray(message.parts)) {
+    return [];
+  }
+
+  const byUrl = new Map<string, ProductCardData>();
+
+  for (const part of message.parts as Array<Record<string, unknown>>) {
+    const toolName = toolNameFromPart(part);
+    if (
+      toolName !== "searchProducts" &&
+      toolName !== "scrapeProduct" &&
+      toolName !== "listFindings"
+    ) {
+      continue;
+    }
+    if (part.state !== "output-available" && part.state !== "result") {
+      continue;
+    }
+    const output = part.output ?? part.result;
+    for (const product of productsFromToolOutput(output)) {
+      const key = normalizeUrlKey(product.url);
+      const fromFinding = findingsByUrl.get(key);
+      byUrl.set(key, {
+        ...product,
+        price: product.price ?? fromFinding?.price ?? null,
+        currency: product.currency ?? fromFinding?.currency ?? null,
+        source: product.source ?? fromFinding?.source ?? null,
+        summary: product.summary ?? fromFinding?.summary ?? null,
+        imageUrl: product.imageUrl ?? fromFinding?.imageUrl ?? null,
+        isNew: fromFinding?.isNew,
+      });
+    }
+  }
+
+  return Array.from(byUrl.values());
+}
+
+function ProductCard({ product }: { product: ProductCardData }) {
+  const priceLabel = formatPrice(product.price, product.currency);
+  return (
+    <article className="product-card">
+      <a
+        className="product-card-media"
+        href={product.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${product.title}`}
+      >
+        {product.imageUrl ? (
+          <img src={product.imageUrl} alt="" loading="lazy" />
+        ) : (
+          <div className="product-card-placeholder" aria-hidden="true">
+            No image
+          </div>
+        )}
+      </a>
+      <div className="product-card-body">
+        <div className="product-card-meta">
+          {product.source ? (
+            <span className="product-source">{product.source}</span>
+          ) : null}
+          {product.isNew ? <span className="badge">New</span> : null}
+        </div>
+        <strong>
+          <a href={product.url} target="_blank" rel="noreferrer">
+            {product.title}
+          </a>
+        </strong>
+        {priceLabel ? <p className="product-price">{priceLabel}</p> : null}
+        {product.summary ? (
+          <p className="product-summary">{product.summary}</p>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function MessageBubble({
+  message,
+  findingsByUrl,
+}: {
+  message: UIMessage;
+  findingsByUrl: Map<string, ProductCardData>;
+}) {
   const [text] = useSmoothText(message.text ?? "", {
     startStreaming: message.status === "streaming",
   });
   const role = message.role === "user" ? "user" : "assistant";
+  const products = useMemo(
+    () => extractProductsFromMessage(message, findingsByUrl),
+    [message, findingsByUrl],
+  );
+
   return (
     <article className={`message ${role}`}>
       <div className="meta">{role === "user" ? "You" : "Carter"}</div>
-      <div className="body">{text || (message.status === "streaming" ? "…" : "")}</div>
+      <div className="body">
+        {text || (message.status === "streaming" ? "…" : "")}
+      </div>
+      {products.length > 0 ? (
+        <div className="product-grid" aria-label="Product recommendations">
+          {products.map((product) => (
+            <ProductCard key={product.url} product={product} />
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -89,6 +262,23 @@ export default function App() {
     sessionId && threadId ? { threadId, sessionId } : "skip",
     { initialNumItems: 40, stream: true },
   );
+
+  const findingsByUrl = useMemo(() => {
+    const map = new Map<string, ProductCardData>();
+    for (const finding of findings ?? []) {
+      map.set(normalizeUrlKey(finding.url), {
+        title: finding.title,
+        url: finding.url,
+        price: finding.price,
+        currency: finding.currency,
+        source: finding.source,
+        summary: finding.summary,
+        imageUrl: finding.imageUrl,
+        isNew: finding.isNew,
+      });
+    }
+    return map;
+  }, [findings]);
 
   const sendMessage = useMutation(api.chat.sendMessage).withOptimisticUpdate(
     (store, args) => {
@@ -170,7 +360,11 @@ export default function App() {
               </p>
             ) : (
               (messages ?? []).map((message) => (
-                <MessageBubble key={message.key} message={message} />
+                <MessageBubble
+                  key={message.key}
+                  message={message}
+                  findingsByUrl={findingsByUrl}
+                />
               ))
             )}
           </div>
@@ -239,21 +433,19 @@ export default function App() {
                 <p className="empty">Nothing found yet.</p>
               ) : (
                 (findings ?? []).map((finding) => (
-                  <article className="finding-card" key={finding._id}>
-                    <strong>
-                      <a href={finding.url} target="_blank" rel="noreferrer">
-                        {finding.title}
-                      </a>
-                    </strong>
-                    <p>
-                      {finding.source}
-                      {finding.price != null
-                        ? ` · ${finding.currency ?? "USD"} ${finding.price}`
-                        : ""}
-                    </p>
-                    {finding.summary ? <p>{finding.summary}</p> : null}
-                    {finding.isNew ? <span className="badge">New</span> : null}
-                  </article>
+                  <ProductCard
+                    key={finding._id}
+                    product={{
+                      title: finding.title,
+                      url: finding.url,
+                      price: finding.price,
+                      currency: finding.currency,
+                      source: finding.source,
+                      summary: finding.summary,
+                      imageUrl: finding.imageUrl,
+                      isNew: finding.isNew,
+                    }}
+                  />
                 ))
               )}
             </div>

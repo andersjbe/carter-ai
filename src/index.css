@@ -167,6 +167,120 @@ a {
   line-height: 1.5;
 }
 
+.message .product-grid {
+  margin-top: 0.85rem;
+}
+
+.product-grid,
+.finding-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.product-card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.72);
+  animation: pop 0.45s ease both;
+}
+
+.message .product-card {
+  background: rgba(255, 252, 247, 0.92);
+}
+
+.product-card-media {
+  display: block;
+  width: 88px;
+  height: 88px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(28, 23, 18, 0.04);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.product-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.product-card-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 0.4rem;
+}
+
+.product-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+  align-content: start;
+}
+
+.product-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.product-source {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.product-card strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.product-card a {
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+}
+
+.product-card a:hover {
+  text-decoration: underline;
+  color: var(--accent-deep);
+}
+
+.product-price {
+  margin: 0;
+  font-weight: 700;
+  color: var(--accent-deep);
+  font-size: 0.95rem;
+}
+
+.product-summary {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
 .composer {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -250,49 +364,32 @@ a {
   font-size: 0.82rem;
 }
 
-.query-list,
-.finding-list {
+.query-list {
   display: grid;
   gap: 0.65rem;
 }
 
-.query-card,
-.finding-card {
+.query-card {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 0.75rem 0.8rem;
   background: rgba(255, 255, 255, 0.55);
 }
 
-.query-card strong,
-.finding-card strong {
+.query-card strong {
   display: block;
   margin-bottom: 0.25rem;
 }
 
-.query-card p,
-.finding-card p {
+.query-card p {
   margin: 0;
   color: var(--ink-soft);
   font-size: 0.88rem;
 }
 
-.finding-card {
-  animation: pop 0.45s ease both;
-}
-
-.finding-card a {
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.finding-card a:hover {
-  text-decoration: underline;
-}
-
 .badge {
   display: inline-block;
-  margin-top: 0.45rem;
+  margin-top: 0;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
