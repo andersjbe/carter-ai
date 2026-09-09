@@ -1,0 +1,358 @@
+:root {
+  color-scheme: light;
+  --ink: #1c1712;
+  --ink-soft: #5a4f44;
+  --paper: #f3ebe0;
+  --paper-deep: #e6d7c4;
+  --panel: rgba(255, 250, 243, 0.82);
+  --accent: #b84a2a;
+  --accent-deep: #8f3418;
+  --line: rgba(28, 23, 18, 0.12);
+  --good: #2f6b4f;
+  --shadow: 0 24px 60px rgba(54, 34, 16, 0.12);
+  --radius: 18px;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Manrope", system-ui, sans-serif;
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #fff7ea 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #f0d7c4 0%, transparent 50%),
+    linear-gradient(160deg, #f7efe4 0%, #ebe0d1 45%, #e4d5c2 100%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: var(--accent-deep);
+}
+
+.app-shell {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.5rem 0 3rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.hero {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1.5rem 0 0.25rem;
+  animation: rise 0.7s ease both;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: clamp(2.8rem, 7vw, 4.6rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.tagline {
+  margin: 0;
+  max-width: 36rem;
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: min(72vh, 760px);
+  overflow: hidden;
+  animation: rise 0.8s ease both;
+}
+
+.chat-header {
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+}
+
+.chat-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.chat-header p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.messages {
+  overflow: auto;
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+}
+
+.message {
+  max-width: min(100%, 42rem);
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  animation: fade-in 0.35s ease both;
+}
+
+.message.user {
+  justify-self: end;
+  background: #1c1712;
+  color: #f8f1e8;
+}
+
+.message.assistant {
+  justify-self: start;
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--line);
+}
+
+.message .meta {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-bottom: 0.35rem;
+}
+
+.message .body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 252, 247, 0.9);
+}
+
+.composer textarea {
+  resize: none;
+  min-height: 3.2rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  padding: 0.8rem 0.9rem;
+  background: #fffdf9;
+  color: var(--ink);
+}
+
+.composer button,
+.side-panel button,
+.alerts button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1.15rem;
+  background: var(--accent);
+  color: #fff8f3;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer button:disabled,
+.side-panel button:disabled,
+.alerts button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.composer button:hover:not(:disabled),
+.side-panel button:hover:not(:disabled),
+.alerts button:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.side-stack {
+  display: grid;
+  gap: 1rem;
+  animation: rise 0.9s ease both;
+}
+
+.side-panel,
+.alerts {
+  padding: 1rem 1.05rem 1.15rem;
+}
+
+.side-panel h3,
+.alerts h3 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.side-panel .hint,
+.alerts .hint {
+  margin: 0 0 0.9rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.query-list,
+.finding-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.query-card,
+.finding-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.75rem 0.8rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.query-card strong,
+.finding-card strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.query-card p,
+.finding-card p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.finding-card {
+  animation: pop 0.45s ease both;
+}
+
+.finding-card a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.finding-card a:hover {
+  text-decoration: underline;
+}
+
+.badge {
+  display: inline-block;
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--good);
+}
+
+.alerts form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.alerts input[type="email"] {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem;
+  background: #fffdf9;
+}
+
+.alerts label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+}
+
+.empty {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
