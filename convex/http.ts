@@ -3,9 +3,12 @@ import { httpAction } from "./_generated/server";
 import { components } from "./_generated/api";
 import { AgentMail } from "@agentmail/convex";
 import { registerStaticRoutes } from "@convex-dev/static-hosting";
+import { authComponent, createAuth } from "./auth";
 
 const http = httpRouter();
 const agentmail = new AgentMail(components.agentmail);
+
+authComponent.registerRoutes(http, createAuth, { cors: true });
 
 http.route({
   path: "/agentmail/webhook",

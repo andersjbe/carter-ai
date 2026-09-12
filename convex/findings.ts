@@ -4,6 +4,7 @@ import {
   internalQuery,
   query,
 } from "./_generated/server";
+import { requireOwnedSession } from "./lib/sessionAuth";
 
 const sourceValidator = v.union(
   v.literal("amazon"),
@@ -36,6 +37,7 @@ export const listForSession = query({
     }),
   ),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const rows = await ctx.db
       .query("findings")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
@@ -74,6 +76,9 @@ export const listForQuery = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const openQuery = await ctx.db.get(args.queryId);
+    if (!openQuery) return [];
+    await requireOwnedSession(ctx, openQuery.sessionId);
     const rows = await ctx.db
       .query("findings")
       .withIndex("by_query", (q) => q.eq("queryId", args.queryId))

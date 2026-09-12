@@ -17,13 +17,16 @@
     "@ai-sdk/openai": "^4.0.60",
     "@convex-dev/agent": "^0.7.1",
     "@convex-dev/ai-sdk-provider": "^0.1.0",
+    "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/static-hosting": "^0.2.0",
     "@firecrawl/firecrawl-convex": "^0.1.0",
     "ai": "^7.0.0",
+    "better-auth": "~1.6.15",
     "convex": "^1.45.0",
     "convex-helpers": "^0.1.104",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {

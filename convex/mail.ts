@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import { AgentMail } from "@agentmail/convex";
+import { requireOwnedSession } from "./lib/sessionAuth";
 
 const agentmail = new AgentMail(components.agentmail);
 
@@ -22,6 +23,7 @@ export const getPrefs = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const prefs = await ctx.db
       .query("alertPrefs")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
@@ -43,6 +45,7 @@ export const setAlerts = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const email = args.email?.trim().toLowerCase();
     if (args.enabled && (!email || !email.includes("@"))) {
       throw new Error("Email is required to enable alerts.");

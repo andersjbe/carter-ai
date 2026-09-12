@@ -1,4 +1,4 @@
-import { paginationOptsValidator } from "convex/server";
+﻿import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import {
   listUIMessages,
@@ -8,19 +8,7 @@ import {
 } from "@convex-dev/agent";
 import { mutation, query } from "./_generated/server";
 import { components, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-
-async function assertSessionThread(
-  ctx: { db: { get: (id: Id<"sessions">) => Promise<{ threadId?: string } | null> } },
-  sessionId: Id<"sessions">,
-  threadId: string,
-) {
-  const session = await ctx.db.get(sessionId);
-  if (!session || session.threadId !== threadId) {
-    throw new Error("Unauthorized thread access");
-  }
-  return session;
-}
+import { requireOwnedSession } from "./lib/sessionAuth";
 
 export const listMessages = query({
   args: {
@@ -30,7 +18,10 @@ export const listMessages = query({
     streamArgs: vStreamArgs,
   },
   handler: async (ctx, args) => {
-    await assertSessionThread(ctx, args.sessionId, args.threadId);
+    const session = await requireOwnedSession(ctx, args.sessionId);
+    if (session.threadId !== args.threadId) {
+      throw new Error("Unauthorized thread access");
+    }
     const paginated = await listUIMessages(ctx, components.agent, {
       threadId: args.threadId,
       paginationOpts: args.paginationOpts,
@@ -51,7 +42,10 @@ export const sendMessage = mutation({
   },
   returns: v.object({ messageId: v.string() }),
   handler: async (ctx, args) => {
-    await assertSessionThread(ctx, args.sessionId, args.threadId);
+    const session = await requireOwnedSession(ctx, args.sessionId);
+    if (session.threadId !== args.threadId) {
+      throw new Error("Unauthorized thread access");
+    }
     const prompt = args.prompt.trim();
     if (!prompt) throw new Error("Message cannot be empty");
 

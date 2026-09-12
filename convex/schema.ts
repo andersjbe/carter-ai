@@ -3,10 +3,10 @@ import { v } from "convex/values";
 
 export default defineSchema({
   sessions: defineTable({
-    clientKey: v.string(),
+    userId: v.string(),
     threadId: v.optional(v.string()),
     profileId: v.optional(v.id("profiles")),
-  }).index("by_clientKey", ["clientKey"]),
+  }).index("by_user", ["userId"]),
 
   profiles: defineTable({
     sessionId: v.id("sessions"),

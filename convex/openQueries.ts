@@ -4,6 +4,7 @@ import {
   internalQuery,
   query,
 } from "./_generated/server";
+import { requireOwnedSession } from "./lib/sessionAuth";
 
 const sourceValidator = v.union(
   v.literal("amazon"),
@@ -30,6 +31,7 @@ export const listForSession = query({
     }),
   ),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const rows = await ctx.db
       .query("openQueries")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))

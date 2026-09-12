@@ -1,19 +1,22 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
 import { createThread } from "@convex-dev/agent";
+import { requireAuthUserId } from "./lib/sessionAuth";
 
 export const getOrCreate = mutation({
-  args: { clientKey: v.string() },
+  args: {},
   returns: v.object({
     sessionId: v.id("sessions"),
     threadId: v.string(),
     profileId: v.union(v.id("profiles"), v.null()),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
+    const userId = await requireAuthUserId(ctx);
+
     const existing = await ctx.db
       .query("sessions")
-      .withIndex("by_clientKey", (q) => q.eq("clientKey", args.clientKey))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .unique();
 
     if (existing?.threadId) {
@@ -38,7 +41,7 @@ export const getOrCreate = mutation({
     }
 
     const sessionId = await ctx.db.insert("sessions", {
-      clientKey: args.clientKey,
+      userId,
       threadId,
     });
 
@@ -46,8 +49,8 @@ export const getOrCreate = mutation({
   },
 });
 
-export const getByClientKey = query({
-  args: { clientKey: v.string() },
+export const getMine = query({
+  args: {},
   returns: v.union(
     v.object({
       sessionId: v.id("sessions"),
@@ -56,10 +59,11 @@ export const getByClientKey = query({
     }),
     v.null(),
   ),
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
+    const userId = await requireAuthUserId(ctx);
     const session = await ctx.db
       .query("sessions")
-      .withIndex("by_clientKey", (q) => q.eq("clientKey", args.clientKey))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .unique();
     if (!session) return null;
     return {
@@ -67,5 +71,49 @@ export const getByClientKey = query({
       threadId: session.threadId ?? null,
       profileId: session.profileId ?? null,
     };
+  },
+});
+
+/** Deletes all Carter session-scoped data (dev reset). */
+export const clearAllSessionData = internalMutation({
+  args: {},
+  returns: v.object({
+    sessions: v.number(),
+    profiles: v.number(),
+    openQueries: v.number(),
+    findings: v.number(),
+    alertPrefs: v.number(),
+  }),
+  handler: async (ctx) => {
+    const counts = {
+      sessions: 0,
+      profiles: 0,
+      openQueries: 0,
+      findings: 0,
+      alertPrefs: 0,
+    };
+
+    for (const row of await ctx.db.query("findings").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.findings += 1;
+    }
+    for (const row of await ctx.db.query("openQueries").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.openQueries += 1;
+    }
+    for (const row of await ctx.db.query("alertPrefs").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.alertPrefs += 1;
+    }
+    for (const row of await ctx.db.query("profiles").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.profiles += 1;
+    }
+    for (const row of await ctx.db.query("sessions").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.sessions += 1;
+    }
+
+    return counts;
   },
 });

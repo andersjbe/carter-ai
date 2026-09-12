@@ -6,6 +6,7 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { requireOwnedSession } from "./lib/sessionAuth";
 
 const prefsValidator = v.object({
   budgetMin: v.optional(v.number()),
@@ -32,6 +33,7 @@ export const getForSession = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const profile = await ctx.db
       .query("profiles")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
@@ -89,6 +91,7 @@ export const setEmail = mutation({
   },
   returns: v.id("profiles"),
   handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
     const email = args.email.trim().toLowerCase();
     if (!email.includes("@")) {
       throw new Error("Enter a valid email address.");
