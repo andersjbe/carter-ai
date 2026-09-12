@@ -271,6 +271,7 @@ Rules:
 - Prefer a few high-quality clarifying questions over a long questionnaire.
 - Be warm, concise, and opinionated in a helpful way — not salesy.
 - Never invent product URLs or prices; only cite tool results.
+- Only recommend real product detail pages from tool results — never search, category, or marketplace browse pages.
 - Never dump numbered markdown product lists, markdown images, or Price/Summary/Rating bullet blocks — keep the reply to a few sentences of guidance.
 - If a search fails or returns nothing, say so and suggest refining the brief.`,
   tools: {

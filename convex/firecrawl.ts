@@ -27,6 +27,57 @@ function detectSource(url: string): "amazon" | "etsy" | "web" {
   return "web";
 }
 
+/** True when the URL looks like a product detail page, not a search/category SERP. */
+function isProductPageUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  const params = parsed.searchParams;
+
+  const isAmazon =
+    host.includes("amazon.") ||
+    host.includes("amzn.") ||
+    host === "a.co" ||
+    host.endsWith(".a.co");
+  if (isAmazon) {
+    return (
+      /\/dp\/[a-z0-9]{8,}/i.test(path) ||
+      /\/gp\/product\/[a-z0-9]{8,}/i.test(path) ||
+      /\/gp\/aw\/d\/[a-z0-9]{8,}/i.test(path)
+    );
+  }
+
+  if (host.includes("etsy.")) {
+    return /\/listing\/\d+/i.test(path);
+  }
+
+  // Other web: allow unless the path/query clearly looks like a search page.
+  if (
+    path === "/s" ||
+    path.startsWith("/s/") ||
+    path.includes("/search") ||
+    path.includes("/sch") ||
+    path.startsWith("/slp/") ||
+    path.startsWith("/c/") ||
+    path.startsWith("/market/") ||
+    params.has("q") ||
+    params.has("k") ||
+    params.has("query") ||
+    params.has("keyword") ||
+    params.has("keywords")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function parsePrice(text: string | undefined): number | undefined {
   if (!text) return undefined;
   const match = text.replace(/,/g, "").match(/\$?\s*(\d+(?:\.\d{1,2})?)/);
@@ -208,8 +259,9 @@ export const searchAndStore = internalAction({
   }),
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 6, 10);
+    const fetchLimit = Math.min(limit * 2, 15);
     const response = await firecrawl.search(ctx, args.searchQuery, {
-      limit,
+      limit: fetchLimit,
       includeDomains: args.includeDomains,
       scrapeOptions: {
         formats: ["markdown", "summary", "images"],
@@ -233,8 +285,12 @@ export const searchAndStore = internalAction({
       imageUrl: string | null;
     }> = [];
 
-    for (const hit of hits.slice(0, limit)) {
+    for (const hit of hits) {
+      if (results.length >= limit) break;
+
       const url = String(hit.url ?? hit.sourceURL ?? "").trim();
+      if (!url || !isProductPageUrl(url)) continue;
+
       const metadata =
         hit.metadata && typeof hit.metadata === "object"
           ? (hit.metadata as { title?: string; description?: string })
@@ -242,7 +298,6 @@ export const searchAndStore = internalAction({
       const title = String(
         hit.title ?? metadata?.title ?? url,
       ).slice(0, 200);
-      if (!url) continue;
       const source = detectSource(url);
       const summary =
         typeof hit.description === "string"
@@ -300,6 +355,12 @@ export const scrapeProductPage = internalAction({
   },
   returns: findingResultValidator,
   handler: async (ctx, args) => {
+    if (!isProductPageUrl(args.url)) {
+      throw new Error(
+        "URL must be a product detail page, not a search or category page",
+      );
+    }
+
     const page = await firecrawl.scrape(ctx, args.url, {
       formats: [
         "markdown",
