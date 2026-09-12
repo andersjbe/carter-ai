@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -10,6 +10,68 @@ import {
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { authClient } from "../lib/auth-client";
+import ThemeToggle from "../components/ThemeToggle";
+
+type ContextTab = "knows" | "queries" | "findings";
+
+function IconSidebar({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M9 4v16" />
+    </svg>
+  );
+}
+
+function IconSearch({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" />
+    </svg>
+  );
+}
+
+function IconPlus({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
 
 type ProductCardData = {
   title: string;
@@ -197,18 +259,121 @@ function MessageBubble({
   );
 }
 
+const ACTIVE_SESSION_KEY_PREFIX = "carter.activeSession.";
+const THREADS_SIDEBAR_KEY = "carter.threadsSidebarOpen";
+
+function activeSessionStorageKey(userId: string) {
+  return `${ACTIVE_SESSION_KEY_PREFIX}${userId}`;
+}
+
+function readStoredSessionId(userId: string): Id<"sessions"> | null {
+  try {
+    const raw = localStorage.getItem(activeSessionStorageKey(userId));
+    return raw ? (raw as Id<"sessions">) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeActiveSessionId(userId: string, sessionId: Id<"sessions">) {
+  try {
+    localStorage.setItem(activeSessionStorageKey(userId), sessionId);
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
+function readThreadsSidebarOpen(): boolean {
+  try {
+    const raw = localStorage.getItem(THREADS_SIDEBAR_KEY);
+    if (raw === null) return true;
+    return raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function storeThreadsSidebarOpen(open: boolean) {
+  try {
+    localStorage.setItem(THREADS_SIDEBAR_KEY, open ? "1" : "0");
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
 export default function ChatApp() {
   const navigate = useNavigate();
   const { data: authSession } = authClient.useSession();
   const ensureSession = useMutation(api.sessions.getOrCreate);
+  const createSession = useMutation(api.sessions.create);
+  const conversations = useQuery(
+    api.sessions.list,
+    authSession?.user?.id ? {} : "skip",
+  );
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [pendingBootstrap, setPendingBootstrap] = useState<{
+    sessionId: Id<"sessions">;
+    threadId: string;
+  } | null>(null);
+  const [threadsOpen, setThreadsOpen] = useState(readThreadsSidebarOpen);
+  const [threadSearch, setThreadSearch] = useState("");
+  const [contextTab, setContextTab] = useState<ContextTab>("knows");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [creatingChat, setCreatingChat] = useState(false);
   const [email, setEmail] = useState("");
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [alertBusy, setAlertBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  const activeTitle =
+    conversations?.find((row) => row.sessionId === sessionId)?.title ??
+    "New chat";
+
+  const filteredConversations = useMemo(() => {
+    const rows = conversations ?? [];
+    const q = threadSearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => row.title.toLowerCase().includes(q));
+  }, [conversations, threadSearch]);
+
+  function selectConversation(
+    nextSessionId: Id<"sessions">,
+    nextThreadId: string,
+  ) {
+    setSessionId(nextSessionId);
+    setThreadId(nextThreadId);
+    setDraft("");
+    const userId = authSession?.user?.id;
+    if (userId) storeActiveSessionId(userId, nextSessionId);
+    if (
+      threadsOpen &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches
+    ) {
+      setThreadsOpen(false);
+      storeThreadsSidebarOpen(false);
+    }
+  }
+
+  function toggleThreadsSidebar() {
+    setThreadsOpen((open) => {
+      const next = !open;
+      storeThreadsSidebarOpen(next);
+      return next;
+    });
+  }
+
+  function openSidebarForSearch() {
+    if (!threadsOpen) {
+      setThreadsOpen(true);
+      storeThreadsSidebarOpen(true);
+    }
+    queueMicrotask(() => searchInputRef.current?.focus());
+  }
 
   async function onSignOut() {
     setSigningOut(true);
@@ -220,20 +385,63 @@ export default function ChatApp() {
     }
   }
 
+  async function onNewChat() {
+    if (creatingChat) return;
+    setCreatingChat(true);
+    try {
+      const session = await createSession({});
+      selectConversation(session.sessionId, session.threadId);
+      setThreadSearch("");
+    } finally {
+      setCreatingChat(false);
+    }
+  }
+
   useEffect(() => {
     if (!authSession?.user?.id) return;
     let cancelled = false;
     setSessionId(null);
     setThreadId(null);
-    void ensureSession({}).then((session) => {
+    setPendingBootstrap(null);
+
+    void ensureSession({}).then((bootstrap) => {
       if (cancelled) return;
-      setSessionId(session.sessionId);
-      setThreadId(session.threadId);
+      setPendingBootstrap({
+        sessionId: bootstrap.sessionId,
+        threadId: bootstrap.threadId,
+      });
     });
+
     return () => {
       cancelled = true;
     };
   }, [authSession?.user?.id, ensureSession]);
+
+  useEffect(() => {
+    if (!authSession?.user?.id || conversations === undefined || !pendingBootstrap) {
+      return;
+    }
+    const userId = authSession.user.id;
+    const storedId = readStoredSessionId(userId);
+    const active =
+      (storedId &&
+        conversations.find((row) => row.sessionId === storedId)) ||
+      conversations.find(
+        (row) => row.sessionId === pendingBootstrap.sessionId,
+      ) ||
+      conversations[0];
+
+    if (active) {
+      setSessionId(active.sessionId);
+      setThreadId(active.threadId);
+      storeActiveSessionId(userId, active.sessionId);
+    } else {
+      setSessionId(pendingBootstrap.sessionId);
+      setThreadId(pendingBootstrap.threadId);
+      storeActiveSessionId(userId, pendingBootstrap.sessionId);
+    }
+    setPendingBootstrap(null);
+  }, [authSession?.user?.id, conversations, pendingBootstrap]);
 
   const profile = useQuery(
     api.profiles.getForSession,
@@ -253,19 +461,21 @@ export default function ChatApp() {
   );
 
   useEffect(() => {
-    if (alertPrefs?.email) setEmail(alertPrefs.email);
-    if (alertPrefs) setAlertsEnabled(alertPrefs.enabled);
-  }, [alertPrefs]);
-
-  useEffect(() => {
-    if (profile?.email) setEmail(profile.email);
-  }, [profile?.email]);
+    setEmail(alertPrefs?.email ?? profile?.email ?? "");
+    setAlertsEnabled(alertPrefs?.enabled ?? false);
+  }, [alertPrefs, profile?.email, sessionId]);
 
   const { results: messages } = useUIMessages(
     api.chat.listMessages,
     sessionId && threadId ? { threadId, sessionId } : "skip",
     { initialNumItems: 40, stream: true },
   );
+
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, sessionId]);
 
   const findingsByUrl = useMemo(() => {
     const map = new Map<string, ProductCardData>();
@@ -341,163 +551,339 @@ export default function ChatApp() {
   }, [profile]);
 
   return (
-    <div className="app-shell">
-      <header className="hero">
-        <div className="hero-top">
-          <h1 className="brand">Carter</h1>
-          <div className="hero-actions">
-            {authSession?.user?.email ? (
-              <span className="account-email">{authSession.user.email}</span>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => void onSignOut()}
-              disabled={signingOut}
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </button>
-          </div>
+    <div className="app-shell app-shell--chat">
+      <header className="app-topbar">
+        <h1 className="app-topbar-brand">Carter</h1>
+        <div className="app-topbar-actions">
+          {authSession?.user?.email ? (
+            <span className="account-email">{authSession.user.email}</span>
+          ) : null}
+          <ThemeToggle />
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={() => void onSignOut()}
+            disabled={signingOut}
+          >
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
         </div>
-        <p className="tagline">
-          A curious product scout that learns what you want before searching
-          Amazon, Etsy, and the web — then watches for new finds.
-        </p>
       </header>
 
-      <div className="layout">
-        <section className="panel chat-panel" aria-label="Chat with Carter">
-          <div className="chat-header">
-            <h2>Talk it through</h2>
-            <p>Carter asks first, then hunts.</p>
-          </div>
-          <div className="messages" role="log" aria-live="polite">
-            {(messages ?? []).length === 0 ? (
-              <p className="empty">
-                Say hello, or tell Carter what you are shopping for. Expect a
-                few curious questions before any search.
-              </p>
-            ) : (
-              (messages ?? []).map((message) => (
-                <MessageBubble
-                  key={message.key}
-                  message={message}
-                  findingsByUrl={findingsByUrl}
+      <div
+        className={`workspace${threadsOpen ? " workspace--threads" : " workspace--rail"}`}
+      >
+        {threadsOpen ? (
+          <button
+            type="button"
+            className="threads-backdrop"
+            aria-label="Close chat sidebar"
+            onClick={toggleThreadsSidebar}
+          />
+        ) : null}
+
+        <aside
+          id="threads-sidebar"
+          className={`panel threads-sidebar${threadsOpen ? " is-open" : " is-collapsed"}`}
+          aria-label="Conversations"
+        >
+          {threadsOpen ? (
+            <>
+              <div className="threads-sidebar-top">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={toggleThreadsSidebar}
+                  aria-label="Hide chat sidebar"
+                  aria-pressed={true}
+                  aria-controls="threads-sidebar"
+                >
+                  <IconSidebar />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="threads-new-chat"
+                onClick={() => void onNewChat()}
+                disabled={creatingChat}
+              >
+                {creatingChat ? "Starting…" : "New Chat"}
+              </button>
+
+              <label className="threads-search">
+                <IconSearch />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={threadSearch}
+                  onChange={(event) => setThreadSearch(event.target.value)}
+                  placeholder="Search your threads…"
+                  aria-label="Search your threads"
                 />
-              ))
-            )}
-          </div>
-          <form className="composer" onSubmit={onSend}>
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="I need a compact desk lamp for late-night reading…"
-              aria-label="Message Carter"
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void onSend(event);
-                }
-              }}
-            />
-            <button type="submit" disabled={!sessionId || sending || !draft.trim()}>
-              {sending ? "Sending…" : "Send"}
-            </button>
-          </form>
-        </section>
+              </label>
 
-        <aside className="side-stack">
-          <section className="panel side-panel">
-            <h3>What Carter knows</h3>
-            <p className="hint">
-              {profile?.summary ??
-                "Preferences appear here as Carter learns your taste."}
-            </p>
-            <div className="chips">
-              {prefChips.length === 0 ? (
-                <span className="empty">No preferences yet</span>
-              ) : (
-                prefChips.map((chip) => (
-                  <span className="chip" key={chip}>
-                    {chip}
-                  </span>
-                ))
-              )}
+              <ul className="thread-list">
+                {filteredConversations.length === 0 ? (
+                  <li className="thread-list-empty">
+                    {threadSearch.trim()
+                      ? "No matching threads"
+                      : "No chats yet"}
+                  </li>
+                ) : (
+                  filteredConversations.map((row) => {
+                    const active = row.sessionId === sessionId;
+                    return (
+                      <li key={row.sessionId}>
+                        <button
+                          type="button"
+                          className={`thread-item${active ? " is-active" : ""}`}
+                          onClick={() =>
+                            selectConversation(row.sessionId, row.threadId)
+                          }
+                          aria-current={active ? "true" : undefined}
+                        >
+                          <span className="thread-item-title">{row.title}</span>
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </>
+          ) : (
+            <div className="threads-rail">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={toggleThreadsSidebar}
+                aria-label="Show chat sidebar"
+                aria-pressed={false}
+                aria-controls="threads-sidebar"
+              >
+                <IconSidebar />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={openSidebarForSearch}
+                aria-label="Search chats"
+              >
+                <IconSearch />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => void onNewChat()}
+                disabled={creatingChat}
+                aria-label="New chat"
+              >
+                <IconPlus />
+              </button>
             </div>
-          </section>
+          )}
+        </aside>
 
-          <section className="panel side-panel">
-            <h3>Open queries</h3>
-            <p className="hint">Live shopping briefs Carter is watching.</p>
-            <div className="query-list">
-              {(openQueries ?? []).length === 0 ? (
-                <p className="empty">No open queries yet.</p>
-              ) : (
-                (openQueries ?? []).map((query) => (
-                  <div className="query-card" key={query._id}>
-                    <strong>{query.title}</strong>
-                    <p>{query.brief}</p>
-                    <span className="badge">{query.status}</span>
-                  </div>
-                ))
-              )}
+        <div className="layout">
+          <section className="panel chat-panel" aria-label="Chat with Carter">
+            <div className="chat-header">
+              <div className="chat-header-copy">
+                <h2>{activeTitle}</h2>
+                <p>Carter asks first, then hunts.</p>
+              </div>
             </div>
-          </section>
-
-          <section className="panel side-panel">
-            <h3>Findings</h3>
-            <p className="hint">Products pulled in through Firecrawl.</p>
-            <div className="finding-list">
-              {(findings ?? []).length === 0 ? (
-                <p className="empty">Nothing found yet.</p>
+            <div
+              className="messages"
+              role="log"
+              aria-live="polite"
+              ref={messagesRef}
+            >
+              {(messages ?? []).length === 0 ? (
+                <p className="empty">
+                  Say hello, or tell Carter what you are shopping for. Expect a
+                  few curious questions before any search.
+                </p>
               ) : (
-                (findings ?? []).map((finding) => (
-                  <ProductCard
-                    key={finding._id}
-                    product={{
-                      title: finding.title,
-                      url: finding.url,
-                      price: finding.price,
-                      currency: finding.currency,
-                      source: finding.source,
-                      summary: finding.summary,
-                      imageUrl: finding.imageUrl,
-                      isNew: finding.isNew,
-                    }}
+                (messages ?? []).map((message) => (
+                  <MessageBubble
+                    key={message.key}
+                    message={message}
+                    findingsByUrl={findingsByUrl}
                   />
                 ))
               )}
             </div>
-          </section>
-
-          <section className="panel alerts">
-            <h3>Email alerts</h3>
-            <p className="hint">
-              AgentMail can email you when Carter spots new products or sales
-              for your open queries.
-            </p>
-            <form onSubmit={onSaveAlerts}>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                aria-label="Alert email"
+            <form className="composer" onSubmit={onSend}>
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="I need a compact desk lamp for late-night reading…"
+                aria-label="Message Carter"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void onSend(event);
+                  }
+                }}
               />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={alertsEnabled}
-                  onChange={(event) => setAlertsEnabled(event.target.checked)}
-                />
-                Send me new-find digests
-              </label>
-              <button type="submit" disabled={!sessionId || alertBusy}>
-                {alertBusy ? "Saving…" : "Save alerts"}
+              <button
+                type="submit"
+                disabled={!sessionId || sending || !draft.trim()}
+              >
+                {sending ? "Sending…" : "Send"}
               </button>
             </form>
           </section>
-        </aside>
+
+          <aside className="panel context-panel" aria-label="Shopping context">
+            <div className="context-tabs" role="tablist" aria-label="Context">
+              {(
+                [
+                  ["knows", "Knows"],
+                  ["queries", "Queries"],
+                  ["findings", "Findings"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`context-tab-${id}`}
+                  aria-selected={contextTab === id}
+                  aria-controls={`context-panel-${id}`}
+                  className={`context-tab${contextTab === id ? " is-active" : ""}`}
+                  onClick={() => setContextTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="context-tab-body">
+              {contextTab === "knows" ? (
+                <div
+                  id="context-panel-knows"
+                  role="tabpanel"
+                  aria-labelledby="context-tab-knows"
+                  className="context-pane"
+                >
+                  <section className="side-panel context-section">
+                    <h3>What Carter knows</h3>
+                    <p className="hint">
+                      {profile?.summary ??
+                        "Preferences appear here as Carter learns your taste."}
+                    </p>
+                    <div className="chips">
+                      {prefChips.length === 0 ? (
+                        <span className="empty">No preferences yet</span>
+                      ) : (
+                        prefChips.map((chip) => (
+                          <span className="chip" key={chip}>
+                            {chip}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="alerts context-section">
+                    <h3>Email alerts</h3>
+                    <p className="hint">
+                      AgentMail can email you when Carter spots new products or
+                      sales for your open queries.
+                    </p>
+                    <form onSubmit={onSaveAlerts}>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="you@example.com"
+                        aria-label="Alert email"
+                      />
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={alertsEnabled}
+                          onChange={(event) =>
+                            setAlertsEnabled(event.target.checked)
+                          }
+                        />
+                        Send me new-find digests
+                      </label>
+                      <button type="submit" disabled={!sessionId || alertBusy}>
+                        {alertBusy ? "Saving…" : "Save alerts"}
+                      </button>
+                    </form>
+                  </section>
+                </div>
+              ) : null}
+
+              {contextTab === "queries" ? (
+                <div
+                  id="context-panel-queries"
+                  role="tabpanel"
+                  aria-labelledby="context-tab-queries"
+                  className="context-pane"
+                >
+                  <section className="side-panel context-section">
+                    <h3>Open queries</h3>
+                    <p className="hint">
+                      Live shopping briefs Carter is watching.
+                    </p>
+                    <div className="query-list">
+                      {(openQueries ?? []).length === 0 ? (
+                        <p className="empty">No open queries yet.</p>
+                      ) : (
+                        (openQueries ?? []).map((query) => (
+                          <div className="query-card" key={query._id}>
+                            <strong>{query.title}</strong>
+                            <p>{query.brief}</p>
+                            <span className="badge">{query.status}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {contextTab === "findings" ? (
+                <div
+                  id="context-panel-findings"
+                  role="tabpanel"
+                  aria-labelledby="context-tab-findings"
+                  className="context-pane"
+                >
+                  <section className="side-panel context-section">
+                    <h3>Findings</h3>
+                    <p className="hint">Products pulled in through Firecrawl.</p>
+                    <div className="finding-list">
+                      {(findings ?? []).length === 0 ? (
+                        <p className="empty">Nothing found yet.</p>
+                      ) : (
+                        (findings ?? []).map((finding) => (
+                          <ProductCard
+                            key={finding._id}
+                            product={{
+                              title: finding.title,
+                              url: finding.url,
+                              price: finding.price,
+                              currency: finding.currency,
+                              source: finding.source,
+                              summary: finding.summary,
+                              imageUrl: finding.imageUrl,
+                              isNew: finding.isNew,
+                            }}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </div>
       </div>
     </div>
   );

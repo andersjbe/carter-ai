@@ -6,7 +6,14 @@ export default defineSchema({
     userId: v.string(),
     threadId: v.optional(v.string()),
     profileId: v.optional(v.id("profiles")),
-  }).index("by_user", ["userId"]),
+    title: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
+    /** True until the user sends the first message (at most one empty session per user). */
+    isEmpty: v.optional(v.boolean()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_updated", ["userId", "updatedAt"])
+    .index("by_user_empty", ["userId", "isEmpty"]),
 
   profiles: defineTable({
     sessionId: v.id("sessions"),

@@ -18,6 +18,7 @@ import type * as findings from "../findings.js";
 import type * as firecrawl from "../firecrawl.js";
 import type * as http from "../http.js";
 import type * as lib_sessionAuth from "../lib/sessionAuth.js";
+import type * as lib_sessionTitle from "../lib/sessionTitle.js";
 import type * as mail from "../mail.js";
 import type * as openQueries from "../openQueries.js";
 import type * as profiles from "../profiles.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   firecrawl: typeof firecrawl;
   http: typeof http;
   "lib/sessionAuth": typeof lib_sessionAuth;
+  "lib/sessionTitle": typeof lib_sessionTitle;
   mail: typeof mail;
   openQueries: typeof openQueries;
   profiles: typeof profiles;

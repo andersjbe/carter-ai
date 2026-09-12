@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { authClient } from "../lib/auth-client";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -55,9 +56,12 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-shell">
-        <Link className="auth-brand" to="/">
-          Carter
-        </Link>
+        <div className="auth-shell-top">
+          <Link className="auth-brand" to="/">
+            Carter
+          </Link>
+          <ThemeToggle />
+        </div>
         <h1>{mode === "signup" ? "Create your account" : "Welcome back"}</h1>
         <p className="auth-copy">
           {mode === "signup"

@@ -7,8 +7,11 @@ import {
   type AuthClient,
 } from "@convex-dev/better-auth/react";
 import { authClient } from "./lib/auth-client";
+import { initTheme } from "./lib/theme";
 import App from "./App";
 import "./index.css";
+
+initTheme();
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 

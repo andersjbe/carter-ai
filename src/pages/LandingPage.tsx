@@ -1,5 +1,6 @@
 import { Link, Navigate } from "react-router-dom";
 import { authClient } from "../lib/auth-client";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function LandingPage() {
   const { data: session, isPending } = authClient.useSession();
@@ -13,9 +14,12 @@ export default function LandingPage() {
       <div className="landing-atmosphere" aria-hidden="true" />
       <header className="landing-top">
         <p className="landing-mark">Carter</p>
-        <Link className="landing-nav-link" to="/login">
-          Sign in
-        </Link>
+        <div className="landing-top-actions">
+          <ThemeToggle />
+          <Link className="landing-nav-link" to="/login">
+            Sign in
+          </Link>
+        </div>
       </header>
 
       <main className="landing-hero">

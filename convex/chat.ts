@@ -4,11 +4,16 @@ import {
   listUIMessages,
   saveMessage,
   syncStreams,
+  updateThreadMetadata,
   vStreamArgs,
 } from "@convex-dev/agent";
 import { mutation, query } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import { requireOwnedSession } from "./lib/sessionAuth";
+import {
+  sessionIsEmpty,
+  titleFromPrompt,
+} from "./lib/sessionTitle";
 
 export const listMessages = query({
   args: {
@@ -53,6 +58,23 @@ export const sendMessage = mutation({
       threadId: args.threadId,
       prompt,
     });
+
+    const updatedAt = Date.now();
+    const patch: {
+      updatedAt: number;
+      isEmpty: false;
+      title?: string;
+    } = { updatedAt, isEmpty: false };
+
+    if (sessionIsEmpty(session)) {
+      const title = titleFromPrompt(prompt);
+      patch.title = title;
+      await updateThreadMetadata(ctx, components.agent, {
+        threadId: args.threadId,
+        patch: { title },
+      });
+    }
+    await ctx.db.patch(args.sessionId, patch);
 
     await ctx.scheduler.runAfter(0, internal.chatActions.generateReply, {
       sessionId: args.sessionId,
