@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-12T13:24:53Z
+- **Last updated:** 2026-09-12T17:57:26Z
 
 ## Log
 
@@ -30,3 +30,9 @@ Rendered Firecrawl findings as product cards with optional images in chat and th
 
 ### 2026-09-12 - 13ac833
 Added Better Auth (`@convex-dev/better-auth`) with landing and login pages, then moved sessions from anonymous `clientKey` to authenticated `userId` ownership with checks on public chat/profile/mail APIs (`convex/auth.ts`, `convex/sessions.ts`, `convex/lib/sessionAuth.ts`, `src/pages/*`).
+
+### 2026-09-12 - ba01935
+Tightened Firecrawl result filtering so search hits prefer product detail pages over category or listing URLs (`convex/firecrawl.ts`).
+
+### 2026-09-12 - c272502
+Shipped multi-conversation shopping sessions (one empty chat per user, titles from the first message, full session reset for prefs/queries/findings), a viewport-locked chat UI with a tabbed context column, and a persisted aubergine dark mode (`convex/sessions.ts`, `convex/chat.ts`, `convex/schema.ts`, `src/pages/ChatApp.tsx`, `src/lib/theme.ts`). Convex features: mutations, queries, indexes, agent threads.
