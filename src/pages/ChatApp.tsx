@@ -84,6 +84,18 @@ type ProductCardData = {
   isNew?: boolean;
 };
 
+type ReplyQuestion = {
+  id: string;
+  prompt: string;
+  options: string[];
+};
+
+type ReplySelection = {
+  prompt: string;
+  values: string[];
+  isOther: boolean;
+};
+
 function formatPrice(price: number | null, currency: string | null) {
   if (price == null) return null;
   const code = currency ?? "USD";
@@ -186,6 +198,85 @@ function extractProductsFromMessage(
   return Array.from(byUrl.values());
 }
 
+function asReplyQuestion(value: unknown): ReplyQuestion | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const prompt = typeof row.prompt === "string" ? row.prompt.trim() : "";
+  if (!id || !prompt || !Array.isArray(row.options)) return null;
+  const options = row.options
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (options.length < 2) return null;
+  return { id, prompt, options };
+}
+
+function replyChoicesFromToolOutput(output: unknown): ReplyQuestion[] {
+  if (!output || typeof output !== "object") return [];
+  const record = output as Record<string, unknown>;
+  if (!Array.isArray(record.questions)) return [];
+  const byId = new Map<string, ReplyQuestion>();
+  for (const item of record.questions) {
+    const question = asReplyQuestion(item);
+    if (question) byId.set(question.id, question);
+  }
+  return Array.from(byId.values());
+}
+
+function replyChoicesPayloadFromPart(
+  part: Record<string, unknown>,
+): unknown {
+  return part.output ?? part.result ?? part.input ?? part.args;
+}
+
+function extractReplyChoicesFromMessage(message: UIMessage): ReplyQuestion[] {
+  if (message.role !== "assistant" || !Array.isArray(message.parts)) {
+    return [];
+  }
+
+  const byId = new Map<string, ReplyQuestion>();
+
+  for (const part of message.parts as Array<Record<string, unknown>>) {
+    if (toolNameFromPart(part) !== "offerReplyChoices") continue;
+    for (const question of replyChoicesFromToolOutput(
+      replyChoicesPayloadFromPart(part),
+    )) {
+      byId.set(question.id, question);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function buildDraftFromReplySelections(
+  questions: ReplyQuestion[],
+  selections: Record<string, ReplySelection>,
+): string {
+  return questions
+    .filter((question) => {
+      const selection = selections[question.id];
+      return (
+        selection != null &&
+        (selection.values.length > 0 || selection.isOther)
+      );
+    })
+    .map((question) => {
+      const selection = selections[question.id]!;
+      const ordered = question.options.filter((option) =>
+        selection.values.includes(option),
+      );
+      const joined = ordered.join(", ");
+      if (selection.isOther) {
+        return joined
+          ? `${selection.prompt}: ${joined}, `
+          : `${selection.prompt}: `;
+      }
+      return `${selection.prompt}: ${joined}`;
+    })
+    .join("\n");
+}
+
 function ProductCard({ product }: { product: ProductCardData }) {
   const priceLabel = formatPrice(product.price, product.currency);
   return (
@@ -226,12 +317,77 @@ function ProductCard({ product }: { product: ProductCardData }) {
   );
 }
 
+function ReplyChoices({
+  questions,
+  selections,
+  interactive,
+  onToggle,
+}: {
+  questions: ReplyQuestion[];
+  selections: Record<string, ReplySelection>;
+  interactive: boolean;
+  onToggle: (question: ReplyQuestion, option: string | null) => void;
+}) {
+  if (questions.length === 0) return null;
+
+  return (
+    <div className="reply-choices" aria-label="Suggested replies">
+      {questions.map((question) => {
+        const selected = selections[question.id];
+        return (
+          <div className="reply-choice-question" key={question.id}>
+            <div className="reply-choice-prompt">{question.prompt}</div>
+            <div
+              className="chips reply-choice-chips"
+              role="group"
+              aria-label={`${question.prompt} (select all that apply)`}
+            >
+              {question.options.map((option) => {
+                const isSelected = selected?.values.includes(option) ?? false;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`chip chip-reply${isSelected ? " is-selected" : ""}`}
+                    disabled={!interactive}
+                    aria-pressed={isSelected}
+                    onClick={() => onToggle(question, option)}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className={`chip chip-reply chip-reply-other${
+                  selected?.isOther ? " is-selected" : ""
+                }`}
+                disabled={!interactive}
+                aria-pressed={selected?.isOther ?? false}
+                onClick={() => onToggle(question, null)}
+              >
+                Other
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   findingsByUrl,
+  replyInteractive,
+  replySelections,
+  onToggleReply,
 }: {
   message: UIMessage;
   findingsByUrl: Map<string, ProductCardData>;
+  replyInteractive: boolean;
+  replySelections: Record<string, ReplySelection>;
+  onToggleReply: (question: ReplyQuestion, option: string | null) => void;
 }) {
   const [text] = useSmoothText(message.text ?? "", {
     startStreaming: message.status === "streaming",
@@ -240,6 +396,10 @@ function MessageBubble({
   const products = useMemo(
     () => extractProductsFromMessage(message, findingsByUrl),
     [message, findingsByUrl],
+  );
+  const replyChoices = useMemo(
+    () => (replyInteractive ? extractReplyChoicesFromMessage(message) : []),
+    [message, replyInteractive],
   );
 
   return (
@@ -254,6 +414,14 @@ function MessageBubble({
             <ProductCard key={product.url} product={product} />
           ))}
         </div>
+      ) : null}
+      {replyChoices.length > 0 ? (
+        <ReplyChoices
+          questions={replyChoices}
+          selections={replySelections}
+          interactive={replyInteractive}
+          onToggle={onToggleReply}
+        />
       ) : null}
     </article>
   );
@@ -320,6 +488,9 @@ export default function ChatApp() {
   const [threadSearch, setThreadSearch] = useState("");
   const [contextTab, setContextTab] = useState<ContextTab>("knows");
   const [draft, setDraft] = useState("");
+  const [replySelections, setReplySelections] = useState<
+    Record<string, ReplySelection>
+  >({});
   const [sending, setSending] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
   const [email, setEmail] = useState("");
@@ -328,6 +499,7 @@ export default function ChatApp() {
   const [signingOut, setSigningOut] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const activeTitle =
     conversations?.find((row) => row.sessionId === sessionId)?.title ??
@@ -347,6 +519,7 @@ export default function ChatApp() {
     setSessionId(nextSessionId);
     setThreadId(nextThreadId);
     setDraft("");
+    setReplySelections({});
     const userId = authSession?.user?.id;
     if (userId) storeActiveSessionId(userId, nextSessionId);
     if (
@@ -471,6 +644,26 @@ export default function ChatApp() {
     { initialNumItems: 40, stream: true },
   );
 
+  const interactiveReplyMessageKey = useMemo(() => {
+    const list = messages ?? [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const message = list[i];
+      if (!message || message.role !== "assistant") continue;
+      if (extractReplyChoicesFromMessage(message).length > 0) {
+        return message.key;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const interactiveReplyQuestions = useMemo(() => {
+    if (!interactiveReplyMessageKey) return [] as ReplyQuestion[];
+    const message = (messages ?? []).find(
+      (row) => row.key === interactiveReplyMessageKey,
+    );
+    return message ? extractReplyChoicesFromMessage(message) : [];
+  }, [messages, interactiveReplyMessageKey]);
+
   useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
@@ -504,12 +697,42 @@ export default function ChatApp() {
   );
   const setAlerts = useMutation(api.mail.setAlerts);
 
+  function onToggleReply(question: ReplyQuestion, option: string | null) {
+    const previous = replySelections[question.id];
+    let values = previous?.values ?? [];
+    let isOther = previous?.isOther ?? false;
+
+    if (option === null) {
+      isOther = !isOther;
+    } else if (values.includes(option)) {
+      values = values.filter((value) => value !== option);
+    } else {
+      values = [...values, option];
+    }
+
+    const next: Record<string, ReplySelection> = { ...replySelections };
+    if (values.length === 0 && !isOther) {
+      delete next[question.id];
+    } else {
+      next[question.id] = {
+        prompt: question.prompt,
+        values,
+        isOther,
+      };
+    }
+
+    setReplySelections(next);
+    setDraft(buildDraftFromReplySelections(interactiveReplyQuestions, next));
+    queueMicrotask(() => composerRef.current?.focus());
+  }
+
   async function onSend(event: FormEvent) {
     event.preventDefault();
     if (!sessionId || !threadId || !draft.trim() || sending) return;
     setSending(true);
     const prompt = draft.trim();
     setDraft("");
+    setReplySelections({});
     try {
       await sendMessage({ sessionId, threadId, prompt });
     } finally {
@@ -709,12 +932,18 @@ export default function ChatApp() {
                     key={message.key}
                     message={message}
                     findingsByUrl={findingsByUrl}
+                    replyInteractive={
+                      message.key === interactiveReplyMessageKey
+                    }
+                    replySelections={replySelections}
+                    onToggleReply={onToggleReply}
                   />
                 ))
               )}
             </div>
             <form className="composer" onSubmit={onSend}>
               <textarea
+                ref={composerRef}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder="I need a compact desk lamp for late-night reading…"

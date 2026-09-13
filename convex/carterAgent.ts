@@ -88,7 +88,7 @@ const createOpenQuery = createTool({
 
 const searchProducts = createTool({
   description:
-    "Search ecommerce-oriented results with Firecrawl (Amazon, Etsy, or the open web). Only call after creating an open query and gathering preferences.",
+    "Search ecommerce-oriented results (Amazon, Etsy, or the open web). Prefer listFindings first if you already searched this query — avoid repeat searches. Only call after creating an open query and gathering preferences.",
   inputSchema: z.object({
     queryId: z.string().describe("Open query id returned by createOpenQuery"),
     searchQuery: z
@@ -143,7 +143,7 @@ const searchProducts = createTool({
 
 const scrapeProduct = createTool({
   description:
-    "Scrape a specific product page for title, price, summary, and image, then store it as a finding.",
+    "Scrape a specific product page for title, price, summary, and image, then store it as a finding. Use sparingly — only for promising URLs that lack price/image after search. Prefer listFindings for URLs already stored.",
   inputSchema: z.object({
     queryId: z.string(),
     url: z.string().url(),
@@ -169,7 +169,8 @@ const scrapeProduct = createTool({
 });
 
 const listFindings = createTool({
-  description: "List product findings already stored for this shopper session.",
+  description:
+    "List product findings already stored for this shopper session. Call this before searchProducts when the user asks about prior picks or you may have already searched.",
   inputSchema: z.object({
     queryId: z.string().optional(),
   }),
@@ -253,28 +254,68 @@ const setEmailAlerts = createTool({
   },
 });
 
+const offerReplyChoices = createTool({
+  description:
+    "REQUIRED whenever you ask clarifying follow-up questions. Attach short tappable answer options for each question so the UI can show reply chips. Call this in the same turn you ask questions. Still write the questions conversationally in your message text. Do not include an Other option — the UI adds that.",
+  inputSchema: z.object({
+    questions: z
+      .array(
+        z.object({
+          id: z
+            .string()
+            .describe(
+              "Stable short key for this question, e.g. budget, style, use_case",
+            ),
+          prompt: z
+            .string()
+            .describe(
+              "Short question label shown above the options, e.g. Budget",
+            ),
+          options: z
+            .array(z.string())
+            .min(2)
+            .max(5)
+            .describe("Short suggested answers the user can tap"),
+        }),
+      )
+      .min(1)
+      .max(5),
+  }),
+  execute: async (
+    _ctx: CarterCtx,
+    args,
+  ): Promise<{
+    questions: Array<{ id: string; prompt: string; options: string[] }>;
+  }> => {
+    return args;
+  },
+});
+
 export const carterAgent = new Agent<CarterCtx>(components.agent, {
   name: "Carter",
   languageModel: convexGateway("openai/gpt-4o-mini"),
   instructions: `You are Carter, a curious product-discovery agent.
 
 Your job:
-1. Be genuinely curious about the person before searching. Ask about use case, budget, style, constraints, brands they love or avoid, timeline, and must-haves vs nice-to-haves.
-2. Save what you learn with updatePreferences as details emerge.
-3. Only after you understand enough, create an open shopping query with createOpenQuery.
-4. Then search with searchProducts (Amazon, Etsy, or web) and optionally scrapeProduct for promising URLs.
+1. On the user's first request, ask clarifying questions ONCE (budget, style, constraints, brands, must-haves, etc.) — then stop asking.
+2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
+3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, create an open shopping query with createOpenQuery, then search.
+4. Prefer listFindings before re-searching the same brief. Search with searchProducts (Amazon, Etsy, or web) when you need fresh results; use scrapeProduct sparingly only for promising URLs missing price/image.
 5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown.
 6. Offer email alerts for ongoing open queries via setEmailAlerts when the user wants follow-ups on sales or new products.
 
 Rules:
-- Do not search on the first message unless the user already provided a rich brief.
-- Prefer a few high-quality clarifying questions over a long questionnaire.
+- Clarifying questions happen at most once per conversation. Never loop on more questionnaires.
+- Do not search on the first message unless the user already provided a rich brief (in that case skip clarifying and search).
+- Prefer a few high-quality clarifying questions over a long questionnaire (typically 2–4).
 - Be warm, concise, and opinionated in a helpful way — not salesy.
 - Never invent product URLs or prices; only cite tool results.
 - Only recommend real product detail pages from tool results — never search, category, or marketplace browse pages.
 - Never dump numbered markdown product lists, markdown images, or Price/Summary/Rating bullet blocks — keep the reply to a few sentences of guidance.
+- Do not call searchProducts repeatedly for the same query unless the user asks for a fresh search or a different marketplace/angle.
 - If a search fails or returns nothing, say so and suggest refining the brief.`,
   tools: {
+    offerReplyChoices,
     updatePreferences,
     createOpenQuery,
     searchProducts,
