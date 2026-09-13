@@ -84,13 +84,43 @@ export default defineSchema({
     .index("by_query_fingerprint", ["queryId", "fingerprint"])
     .index("by_session_and_verdict", ["sessionId", "verdict"]),
 
+  shoppingLists: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_updated", ["userId", "updatedAt"]),
+
+  shoppingListItems: defineTable({
+    listId: v.id("shoppingLists"),
+    userId: v.string(),
+    findingId: v.optional(v.id("findings")),
+    title: v.string(),
+    url: v.string(),
+    price: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    source: v.union(
+      v.literal("amazon"),
+      v.literal("etsy"),
+      v.literal("web"),
+    ),
+    imageUrl: v.optional(v.string()),
+    fingerprint: v.string(),
+    lastCheckedAt: v.optional(v.number()),
+    addedAt: v.number(),
+  })
+    .index("by_list", ["listId"])
+    .index("by_list_fingerprint", ["listId", "fingerprint"])
+    .index("by_user", ["userId"]),
+
   alertPrefs: defineTable({
-    sessionId: v.id("sessions"),
+    listId: v.id("shoppingLists"),
     enabled: v.boolean(),
     email: v.optional(v.string()),
     lastEmailedAt: v.optional(v.number()),
     agentInboxId: v.optional(v.string()),
-  }).index("by_session", ["sessionId"]),
+  }).index("by_list", ["listId"]),
 
   appConfig: defineTable({
     key: v.string(),

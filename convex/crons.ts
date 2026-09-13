@@ -10,4 +10,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "recheck shopping list prices",
+  { hours: 6 },
+  internal.digests.recheckShoppingListPrices,
+  {},
+);
+
 export default crons;

@@ -5,15 +5,30 @@ import {
   internalQuery,
   mutation,
   query,
+  type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import { AgentMail } from "@agentmail/convex";
-import { requireOwnedSession } from "./lib/sessionAuth";
+import type { Id } from "./_generated/dataModel";
+import { requireAuthUserId } from "./lib/sessionAuth";
 
 const agentmail = new AgentMail(components.agentmail);
 
+async function requireOwnedList(
+  ctx: QueryCtx | MutationCtx,
+  listId: Id<"shoppingLists">,
+) {
+  const userId = await requireAuthUserId(ctx);
+  const list = await ctx.db.get(listId);
+  if (!list || list.userId !== userId) {
+    throw new Error("Shopping list not found");
+  }
+  return { userId, list };
+}
+
 export const getPrefs = query({
-  args: { sessionId: v.id("sessions") },
+  args: { listId: v.id("shoppingLists") },
   returns: v.union(
     v.object({
       enabled: v.boolean(),
@@ -23,10 +38,10 @@ export const getPrefs = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
-    await requireOwnedSession(ctx, args.sessionId);
+    await requireOwnedList(ctx, args.listId);
     const prefs = await ctx.db
       .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .unique();
     if (!prefs) return null;
     return {
@@ -39,13 +54,13 @@ export const getPrefs = query({
 
 export const setAlerts = mutation({
   args: {
-    sessionId: v.id("sessions"),
+    listId: v.id("shoppingLists"),
     enabled: v.boolean(),
     email: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireOwnedSession(ctx, args.sessionId);
+    await requireOwnedList(ctx, args.listId);
     const email = args.email?.trim().toLowerCase();
     if (args.enabled && (!email || !email.includes("@"))) {
       throw new Error("Email is required to enable alerts.");
@@ -53,7 +68,7 @@ export const setAlerts = mutation({
 
     const existing = await ctx.db
       .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .unique();
 
     if (existing) {
@@ -63,60 +78,18 @@ export const setAlerts = mutation({
       });
     } else {
       await ctx.db.insert("alertPrefs", {
-        sessionId: args.sessionId,
+        listId: args.listId,
         enabled: args.enabled,
         email,
       });
     }
 
-    if (email) {
-      await ctx.runMutation(internal.profiles.upsertPreferences, {
-        sessionId: args.sessionId,
-        email,
-      });
-    }
-
-    return null;
-  },
-});
-
-export const setAlertsInternal = internalMutation({
-  args: {
-    sessionId: v.id("sessions"),
-    enabled: v.boolean(),
-    email: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const email = args.email?.trim().toLowerCase();
-    const existing = await ctx.db
-      .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        enabled: args.enabled,
-        email: email ?? existing.email,
-      });
-    } else {
-      await ctx.db.insert("alertPrefs", {
-        sessionId: args.sessionId,
-        enabled: args.enabled,
-        email,
-      });
-    }
-    if (email) {
-      await ctx.runMutation(internal.profiles.upsertPreferences, {
-        sessionId: args.sessionId,
-        email,
-      });
-    }
     return null;
   },
 });
 
 export const getAlertInternal = internalQuery({
-  args: { sessionId: v.id("sessions") },
+  args: { listId: v.id("shoppingLists") },
   returns: v.union(
     v.object({
       enabled: v.boolean(),
@@ -129,7 +102,7 @@ export const getAlertInternal = internalQuery({
   handler: async (ctx, args) => {
     const prefs = await ctx.db
       .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .unique();
     if (!prefs) return null;
     return {
@@ -143,14 +116,14 @@ export const getAlertInternal = internalQuery({
 
 export const saveInboxId = internalMutation({
   args: {
-    sessionId: v.id("sessions"),
+    listId: v.id("shoppingLists"),
     agentInboxId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const prefs = await ctx.db
       .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .unique();
     if (prefs) {
       await ctx.db.patch(prefs._id, { agentInboxId: args.agentInboxId });
@@ -160,12 +133,12 @@ export const saveInboxId = internalMutation({
 });
 
 export const markEmailed = internalMutation({
-  args: { sessionId: v.id("sessions") },
+  args: { listId: v.id("shoppingLists") },
   returns: v.null(),
   handler: async (ctx, args) => {
     const prefs = await ctx.db
       .query("alertPrefs")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .withIndex("by_list", (q) => q.eq("listId", args.listId))
       .unique();
     if (prefs) {
       await ctx.db.patch(prefs._id, { lastEmailedAt: Date.now() });
@@ -175,7 +148,7 @@ export const markEmailed = internalMutation({
 });
 
 export const getOrCreateAgentInbox = internalAction({
-  args: { sessionId: v.id("sessions") },
+  args: { listId: v.id("shoppingLists") },
   returns: v.string(),
   handler: async (ctx, args): Promise<string> => {
     const prefs: {
@@ -184,7 +157,7 @@ export const getOrCreateAgentInbox = internalAction({
       agentInboxId: string | null;
       lastEmailedAt: number | null;
     } | null = await ctx.runQuery(internal.mail.getAlertInternal, {
-      sessionId: args.sessionId,
+      listId: args.listId,
     });
     if (prefs?.agentInboxId) return prefs.agentInboxId;
 
@@ -194,20 +167,20 @@ export const getOrCreateAgentInbox = internalAction({
     );
     if (shared) {
       await ctx.runMutation(internal.mail.saveInboxId, {
-        sessionId: args.sessionId,
+        listId: args.listId,
         agentInboxId: shared,
       });
       return shared;
     }
 
     const inbox = await agentmail.createInbox(ctx, {
-      username: `carter-${args.sessionId.slice(-8)}`,
+      username: `carter-${args.listId.slice(-8)}`,
       displayName: "Carter Product Scout",
     });
     const inboxId = String(inbox.inbox_id ?? inbox.id ?? inbox.inboxId);
     await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
     await ctx.runMutation(internal.mail.saveInboxId, {
-      sessionId: args.sessionId,
+      listId: args.listId,
       agentInboxId: inboxId,
     });
     return inboxId;
@@ -248,7 +221,7 @@ export const setSharedInbox = internalMutation({
 
 export const sendDigest = internalMutation({
   args: {
-    sessionId: v.id("sessions"),
+    listId: v.id("shoppingLists"),
     inboxId: v.string(),
     to: v.string(),
     subject: v.string(),
@@ -263,7 +236,7 @@ export const sendDigest = internalMutation({
       labels: ["carter-digest", "product-alert"],
     });
     await ctx.runMutation(internal.mail.markEmailed, {
-      sessionId: args.sessionId,
+      listId: args.listId,
     });
     return null;
   },

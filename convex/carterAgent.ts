@@ -225,25 +225,6 @@ const listFindings = createTool({
   },
 });
 
-const setEmailAlerts = createTool({
-  description:
-    "Enable or disable email alerts for new products/sales related to the user's open queries. Requires a real email address when enabling.",
-  inputSchema: z.object({
-    enabled: z.boolean(),
-    email: z.string().email().optional(),
-  }),
-  execute: async (ctx: CarterCtx, args): Promise<string> => {
-    await ctx.runMutation(internal.mail.setAlertsInternal, {
-      sessionId: ctx.sessionId,
-      enabled: args.enabled,
-      email: args.email,
-    });
-    return args.enabled
-      ? "Email alerts enabled. Carter will email when new finds appear for open queries."
-      : "Email alerts disabled.";
-  },
-});
-
 const offerReplyChoices = createTool({
   description:
     "REQUIRED whenever you ask clarifying follow-up questions. Attach short tappable answer options for each question so the UI can show reply chips. Call this in the same turn you ask questions. Still write the questions conversationally in your message text. Do not include an Other option — the UI adds that.",
@@ -291,8 +272,8 @@ Your job:
 2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
 3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, create an open shopping query with createOpenQuery, then search.
 4. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts (Amazon, Etsy, or web) when you need fresh results; use scrapeProduct sparingly only for promising URLs missing price/image.
-5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Users can accept (like) or reject (pass) cards in the UI; that feedback is silent — you learn it via listFindings.
-6. Offer email alerts for ongoing open queries via setEmailAlerts when the user wants follow-ups on sales or new products.
+5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Users can like or pass cards in the UI (preference signal via listFindings) and separately add products to shopping lists when they intend to buy.
+6. If the user asks about price-drop email alerts, tell them to open Lists from the top nav, pick a shopping list, and enable alerts there — you cannot toggle alerts from chat.
 
 Rules:
 - Clarifying questions happen at most once per conversation. Never loop on more questionnaires.
@@ -312,7 +293,6 @@ Rules:
     searchProducts,
     scrapeProduct,
     listFindings,
-    setEmailAlerts,
   },
   stopWhen: stepCountIs(8),
 });

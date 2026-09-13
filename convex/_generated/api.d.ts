@@ -23,6 +23,7 @@ import type * as mail from "../mail.js";
 import type * as openQueries from "../openQueries.js";
 import type * as profiles from "../profiles.js";
 import type * as sessions from "../sessions.js";
+import type * as shoppingLists from "../shoppingLists.js";
 
 import type {
   ApiFromModules,
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   openQueries: typeof openQueries;
   profiles: typeof profiles;
   sessions: typeof sessions;
+  shoppingLists: typeof shoppingLists;
 }>;
 
 /**

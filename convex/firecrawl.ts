@@ -613,3 +613,43 @@ export const scrapeProductPage = internalAction({
     return result;
   },
 });
+
+/** Scrape a product URL for price checks (shopping list digests). No DB writes. */
+export const scrapePriceOnly = internalAction({
+  args: { url: v.string() },
+  returns: v.object({
+    title: v.union(v.string(), v.null()),
+    price: v.union(v.number(), v.null()),
+    currency: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    if (!isProductPageUrl(args.url)) {
+      return { title: null, price: null, currency: null };
+    }
+
+    const source = detectSource(args.url);
+
+    if (source === "web") {
+      const free = await tryFreeEnrich(args.url);
+      if (free && free.price !== undefined) {
+        return {
+          title: free.title ?? null,
+          price: free.price,
+          currency: "USD",
+        };
+      }
+    }
+
+    try {
+      const result = await firecrawlScrapeLean(ctx, args.url);
+      return {
+        title: result.title,
+        price: result.price,
+        currency: result.currency,
+      };
+    } catch (error) {
+      console.error("Price scrape failed", args.url, error);
+      return { title: null, price: null, currency: null };
+    }
+  },
+});

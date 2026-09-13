@@ -65,7 +65,7 @@ export default function LoginPage() {
         <h1>{mode === "signup" ? "Create your account" : "Welcome back"}</h1>
         <p className="auth-copy">
           {mode === "signup"
-            ? "Save preferences, open queries, and email alerts under your account."
+            ? "Save preferences, shopping lists, and price alerts under your account."
             : "Sign in to pick up where Carter left off."}
         </p>
 

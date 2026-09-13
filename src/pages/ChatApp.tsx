@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "convex/react";
 import {
   optimisticallySendMessage,
@@ -13,6 +13,13 @@ import { authClient } from "../lib/auth-client";
 import ThemeToggle from "../components/ThemeToggle";
 
 type ContextTab = "knows" | "queries" | "findings";
+
+type ShoppingListSummary = {
+  _id: Id<"shoppingLists">;
+  name: string;
+  updatedAt: number;
+  itemCount: number;
+};
 
 function IconSidebar({ className }: { className?: string }) {
   return (
@@ -333,16 +340,47 @@ function buildDraftFromReplySelections(
 function ProductCard({
   product,
   onSetVerdict,
+  shoppingLists,
+  onAddToList,
 }: {
   product: ProductCardData;
   onSetVerdict?: (
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
   ) => void;
+  shoppingLists?: ShoppingListSummary[];
+  onAddToList?: (
+    findingId: Id<"findings">,
+    target: Id<"shoppingLists"> | { createName: string },
+  ) => Promise<Id<"shoppingLists">>;
 }) {
   const priceLabel = formatPrice(product.price, product.currency);
   const isAccepted = product.verdict === "accepted";
   const canJudge = Boolean(product._id && onSetVerdict);
+  const canAdd = Boolean(product._id && onAddToList);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addedListId, setAddedListId] = useState<Id<"shoppingLists"> | null>(
+    null,
+  );
+
+  async function addToTarget(
+    target: Id<"shoppingLists"> | { createName: string },
+  ) {
+    if (!product._id || !onAddToList || adding) return;
+    setAdding(true);
+    try {
+      const listId = await onAddToList(product._id, target);
+      setPickerOpen(false);
+      setNewListName("");
+      setAddedListId(listId);
+    } catch (error) {
+      console.error("Failed to add to shopping list", error);
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <article
@@ -405,6 +443,69 @@ function ProductCard({
                 <IconX />
               </button>
             ) : null}
+          </div>
+        ) : null}
+        {canAdd ? (
+          <div className="product-verdict" role="group" aria-label="Shopping list">
+            <button
+              type="button"
+              className={`product-add-list-text${pickerOpen ? " is-selected" : ""}`}
+              aria-expanded={pickerOpen}
+              title="Add to list"
+              onClick={() => {
+                setAddedListId(null);
+                setPickerOpen((open) => !open);
+              }}
+            >
+              <IconPlus />
+              Add to list
+            </button>
+          </div>
+        ) : null}
+        {addedListId ? (
+          <p className="list-added-note">
+            Added.{" "}
+            <Link to={`/app/lists?list=${addedListId}`}>View shopping list</Link>
+          </p>
+        ) : null}
+        {pickerOpen && canAdd ? (
+          <div className="list-picker" role="listbox" aria-label="Choose list">
+            {(shoppingLists ?? []).length === 0 ? (
+              <p className="hint">No lists yet — create one below.</p>
+            ) : (
+              (shoppingLists ?? []).map((list) => (
+                <button
+                  key={list._id}
+                  type="button"
+                  className="list-picker-option"
+                  disabled={adding}
+                  onClick={() => void addToTarget(list._id)}
+                >
+                  {list.name}
+                </button>
+              ))
+            )}
+            <form
+              className="list-picker-create"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const name = newListName.trim();
+                if (!name) return;
+                void addToTarget({ createName: name });
+              }}
+            >
+              <input
+                type="text"
+                value={newListName}
+                onChange={(event) => setNewListName(event.target.value)}
+                placeholder="New list name"
+                aria-label="New list name"
+                disabled={adding}
+              />
+              <button type="submit" disabled={adding || !newListName.trim()}>
+                {adding ? "…" : "Create"}
+              </button>
+            </form>
           </div>
         ) : null}
       </div>
@@ -479,6 +580,8 @@ function MessageBubble({
   replySelections,
   onToggleReply,
   onSetVerdict,
+  shoppingLists,
+  onAddToList,
 }: {
   message: UIMessage;
   findingsByUrl: Map<string, ProductCardData>;
@@ -490,6 +593,11 @@ function MessageBubble({
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
   ) => void;
+  shoppingLists?: ShoppingListSummary[];
+  onAddToList?: (
+    findingId: Id<"findings">,
+    target: Id<"shoppingLists"> | { createName: string },
+  ) => Promise<Id<"shoppingLists">>;
 }) {
   const [text] = useSmoothText(message.text ?? "", {
     startStreaming: message.status === "streaming",
@@ -517,6 +625,8 @@ function MessageBubble({
               key={product.url}
               product={product}
               onSetVerdict={onSetVerdict}
+              shoppingLists={shoppingLists}
+              onAddToList={onAddToList}
             />
           ))}
         </div>
@@ -599,9 +709,6 @@ export default function ChatApp() {
   >({});
   const [sending, setSending] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
-  const [email, setEmail] = useState("");
-  const [alertsEnabled, setAlertsEnabled] = useState(false);
-  const [alertBusy, setAlertBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -738,15 +845,10 @@ export default function ChatApp() {
     api.findings.listRejectedUrlsForSession,
     sessionId ? { sessionId } : "skip",
   );
-  const alertPrefs = useQuery(
-    api.mail.getPrefs,
-    sessionId ? { sessionId } : "skip",
+  const shoppingLists = useQuery(
+    api.shoppingLists.listMine,
+    authSession?.user?.id ? {} : "skip",
   );
-
-  useEffect(() => {
-    setEmail(alertPrefs?.email ?? profile?.email ?? "");
-    setAlertsEnabled(alertPrefs?.enabled ?? false);
-  }, [alertPrefs, profile?.email, sessionId]);
 
   const { results: messages } = useUIMessages(
     api.chat.listMessages,
@@ -815,8 +917,9 @@ export default function ChatApp() {
       });
     },
   );
-  const setAlerts = useMutation(api.mail.setAlerts);
   const setVerdict = useMutation(api.findings.setVerdict);
+  const createList = useMutation(api.shoppingLists.create);
+  const addListItem = useMutation(api.shoppingLists.addItem);
 
   async function onSetVerdict(
     findingId: Id<"findings">,
@@ -827,6 +930,20 @@ export default function ChatApp() {
     } catch (error) {
       console.error("Failed to set finding verdict", error);
     }
+  }
+
+  async function onAddToList(
+    findingId: Id<"findings">,
+    target: Id<"shoppingLists"> | { createName: string },
+  ): Promise<Id<"shoppingLists">> {
+    let listId: Id<"shoppingLists">;
+    if (typeof target === "object" && "createName" in target) {
+      listId = await createList({ name: target.createName });
+    } else {
+      listId = target;
+    }
+    await addListItem({ listId, findingId });
+    return listId;
   }
 
   function onToggleReply(question: ReplyQuestion, option: string | null) {
@@ -872,21 +989,6 @@ export default function ChatApp() {
     }
   }
 
-  async function onSaveAlerts(event: FormEvent) {
-    event.preventDefault();
-    if (!sessionId) return;
-    setAlertBusy(true);
-    try {
-      await setAlerts({
-        sessionId,
-        enabled: alertsEnabled,
-        email: email || undefined,
-      });
-    } finally {
-      setAlertBusy(false);
-    }
-  }
-
   const prefChips = useMemo(() => {
     const prefs = profile?.prefs;
     if (!prefs) return [] as string[];
@@ -910,6 +1012,9 @@ export default function ChatApp() {
       <header className="app-topbar">
         <h1 className="app-topbar-brand">Carter</h1>
         <div className="app-topbar-actions">
+          <Link className="btn btn-ghost btn-compact" to="/app/lists">
+            Lists
+          </Link>
           {authSession?.user?.email ? (
             <span className="account-email">{authSession.user.email}</span>
           ) : null}
@@ -1071,6 +1176,8 @@ export default function ChatApp() {
                     replySelections={replySelections}
                     onToggleReply={onToggleReply}
                     onSetVerdict={onSetVerdict}
+                    shoppingLists={shoppingLists ?? undefined}
+                    onAddToList={onAddToList}
                   />
                 ))
               )}
@@ -1148,36 +1255,6 @@ export default function ChatApp() {
                       )}
                     </div>
                   </section>
-
-                  <section className="alerts context-section">
-                    <h3>Email alerts</h3>
-                    <p className="hint">
-                      AgentMail can email you when Carter spots new products or
-                      sales for your open queries.
-                    </p>
-                    <form onSubmit={onSaveAlerts}>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="you@example.com"
-                        aria-label="Alert email"
-                      />
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={alertsEnabled}
-                          onChange={(event) =>
-                            setAlertsEnabled(event.target.checked)
-                          }
-                        />
-                        Send me new-find digests
-                      </label>
-                      <button type="submit" disabled={!sessionId || alertBusy}>
-                        {alertBusy ? "Saving…" : "Save alerts"}
-                      </button>
-                    </form>
-                  </section>
                 </div>
               ) : null}
 
@@ -1220,7 +1297,8 @@ export default function ChatApp() {
                   <section className="side-panel context-section">
                     <h3>Findings</h3>
                     <p className="hint">
-                      Products Carter found. Like to keep, Pass to hide.
+                      Products Carter found. Like to keep, Pass to hide, or add
+                      to a shopping list when you intend to buy.
                     </p>
                     <div className="finding-list">
                       {(findings ?? []).length === 0 ? (
@@ -1242,6 +1320,8 @@ export default function ChatApp() {
                               verdict: finding.verdict,
                             }}
                             onSetVerdict={onSetVerdict}
+                            shoppingLists={shoppingLists ?? undefined}
+                            onAddToList={onAddToList}
                           />
                         ))
                       )}

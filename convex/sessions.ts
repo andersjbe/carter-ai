@@ -227,6 +227,8 @@ export const clearAllSessionData = internalMutation({
     profiles: v.number(),
     openQueries: v.number(),
     findings: v.number(),
+    shoppingListItems: v.number(),
+    shoppingLists: v.number(),
     alertPrefs: v.number(),
   }),
   handler: async (ctx) => {
@@ -235,6 +237,8 @@ export const clearAllSessionData = internalMutation({
       profiles: 0,
       openQueries: 0,
       findings: 0,
+      shoppingListItems: 0,
+      shoppingLists: 0,
       alertPrefs: 0,
     };
 
@@ -246,9 +250,17 @@ export const clearAllSessionData = internalMutation({
       await ctx.db.delete(row._id);
       counts.openQueries += 1;
     }
+    for (const row of await ctx.db.query("shoppingListItems").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.shoppingListItems += 1;
+    }
     for (const row of await ctx.db.query("alertPrefs").take(500)) {
       await ctx.db.delete(row._id);
       counts.alertPrefs += 1;
+    }
+    for (const row of await ctx.db.query("shoppingLists").take(500)) {
+      await ctx.db.delete(row._id);
+      counts.shoppingLists += 1;
     }
     for (const row of await ctx.db.query("profiles").take(500)) {
       await ctx.db.delete(row._id);
