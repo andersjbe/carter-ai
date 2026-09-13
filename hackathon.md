@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-12T17:57:26Z
+- **Last updated:** 2026-09-13T13:30:43Z
 
 ## Log
 
@@ -36,3 +36,9 @@ Tightened Firecrawl result filtering so search hits prefer product detail pages 
 
 ### 2026-09-12 - c272502
 Shipped multi-conversation shopping sessions (one empty chat per user, titles from the first message, full session reset for prefs/queries/findings), a viewport-locked chat UI with a tabbed context column, and a persisted aubergine dark mode (`convex/sessions.ts`, `convex/chat.ts`, `convex/schema.ts`, `src/pages/ChatApp.tsx`, `src/lib/theme.ts`). Convex features: mutations, queries, indexes, agent threads.
+
+### 2026-09-13 - 50a1cf0
+Cut Firecrawl credit burn: search is metadata-only (no scrape-on-search), known product URLs are skipped, detail enrich is capped and prefers free open-web fetch before lean Firecrawl scrapes, and digests recheck on a 6-hour cron with one hint/source and no enrich (`convex/firecrawl.ts`, `convex/digests.ts`, `convex/crons.ts`, `convex/findings.ts`). Convex features: actions, queries, crons.
+
+### 2026-09-13 - 5233649
+Added tappable reply chips for Carter’s single clarifying turn via an `offerReplyChoices` agent tool, chat-action parsing, and ChatApp chip UI so users can multi-select answers without typing everything (`convex/carterAgent.ts`, `convex/chatActions.ts`, `src/pages/ChatApp.tsx`). Convex features: agent tools, actions.
