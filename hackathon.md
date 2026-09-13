@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-13T14:30:00Z
+- **Last updated:** 2026-09-13T15:43:02Z
 
 ## Log
 
@@ -48,3 +48,12 @@ Shipped like/pass verdicts on product findings: soft-keep likes stay highlighted
 
 ### 2026-09-13 - working tree
 Added user-scoped shopping lists (create/rename/delete, add from product cards, Lists tab) distinct from likes, moved AgentMail prefs onto lists, and switched digests to price-drop scrapes of listed items while open-query rechecks stay UI-only (`convex/schema.ts`, `convex/shoppingLists.ts`, `convex/mail.ts`, `convex/digests.ts`, `convex/firecrawl.ts`, `convex/crons.ts`, `src/pages/ChatApp.tsx`). Convex features: schema, indexes, mutations, queries, actions, crons.
+
+### 2026-09-13 - c4a5179
+Committed like/pass verdicts from the working tree (`convex/findings.ts`, `convex/schema.ts`, `convex/carterAgent.ts`, `src/pages/ChatApp.tsx`). Convex features: schema, indexes, mutations, queries.
+
+### 2026-09-13 - 58f315e
+Committed shopping lists, Lists page, and list-scoped digests/mail prefs (`convex/shoppingLists.ts`, `src/pages/ListsPage.tsx`, `convex/mail.ts`, `convex/digests.ts`, `convex/schema.ts`). Convex features: schema, indexes, mutations, queries, actions, crons.
+
+### 2026-09-13 - working tree
+Redesigned Chat and Lists around shared AppShell/topbar and ProductCard: image-led list items, click-to-edit titles, compact price alerts, warm dark theme instead of aubergine ambient, stacked Knows/Queries/Findings context, and open-query cards that jump to the matching user question in chat without snapping back to the bottom (`src/components/AppShell.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/index.css`).

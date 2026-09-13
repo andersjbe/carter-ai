@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "convex/react";
 import {
   optimisticallySendMessage,
@@ -10,127 +9,21 @@ import {
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { authClient } from "../lib/auth-client";
-import ThemeToggle from "../components/ThemeToggle";
+import { AppShell } from "../components/AppShell";
+import ProductCard, {
+  type ProductCardData,
+  type ShoppingListSummary,
+} from "../components/ProductCard";
+import {
+  IconPanel,
+  IconPlus,
+  IconSearch,
+  IconSidebar,
+} from "../components/icons";
 
-type ContextTab = "knows" | "queries" | "findings";
-
-type ShoppingListSummary = {
-  _id: Id<"shoppingLists">;
-  name: string;
-  updatedAt: number;
-  itemCount: number;
-};
-
-function IconSidebar({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="4" width="18" height="16" rx="2.5" />
-      <path d="M9 4v16" />
-    </svg>
-  );
-}
-
-function IconSearch({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="M20 20l-3.5-3.5" />
-    </svg>
-  );
-}
-
-function IconPlus({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function IconThumbsUp({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M7 10v12" />
-      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
-    </svg>
-  );
-}
-
-function IconX({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-type ProductCardData = {
-  _id?: Id<"findings">;
-  title: string;
-  url: string;
-  price: number | null;
-  currency: string | null;
-  source: string | null;
-  summary: string | null;
-  imageUrl: string | null;
-  isNew?: boolean;
-  verdict?: "accepted" | "rejected" | null;
-};
+const CONTEXT_PANEL_KEY = "carter.contextPanelOpen";
+const DEFAULT_COMPOSER_PLACEHOLDER =
+  "Tell Carter what you’re shopping for…";
 
 type ReplyQuestion = {
   id: string;
@@ -143,20 +36,6 @@ type ReplySelection = {
   values: string[];
   isOther: boolean;
 };
-
-function formatPrice(price: number | null, currency: string | null) {
-  if (price == null) return null;
-  const code = currency ?? "USD";
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: code,
-      maximumFractionDigits: 2,
-    }).format(price);
-  } catch {
-    return `${code} ${price}`;
-  }
-}
 
 function normalizeUrlKey(url: string) {
   return url.trim().toLowerCase().replace(/\/+$/, "");
@@ -185,6 +64,149 @@ function toolNameFromPart(part: Record<string, unknown>): string | null {
     return part.type.slice("tool-".length);
   }
   return null;
+}
+
+function toolInputFromPart(part: Record<string, unknown>): unknown {
+  return part.input ?? part.args;
+}
+
+function toolOutputFromPart(part: Record<string, unknown>): unknown {
+  return part.output ?? part.result;
+}
+
+function asToolRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (row.value && typeof row.value === "object") {
+    return row.value as Record<string, unknown>;
+  }
+  return row;
+}
+
+function queryIdFromCreateOutput(output: unknown): string | null {
+  const row = asToolRecord(output);
+  if (!row) return null;
+  const queryId = row.queryId;
+  return typeof queryId === "string" && queryId.trim() ? queryId.trim() : null;
+}
+
+function queryIdFromToolInput(input: unknown): string | null {
+  const row = asToolRecord(input);
+  if (!row) return null;
+  const queryId = row.queryId;
+  return typeof queryId === "string" && queryId.trim() ? queryId.trim() : null;
+}
+
+function titleFromCreateInput(input: unknown): string | null {
+  const row = asToolRecord(input);
+  if (!row) return null;
+  const title = row.title;
+  return typeof title === "string" && title.trim() ? title.trim() : null;
+}
+
+function messageHasCreateOpenQuery(message: UIMessage): boolean {
+  if (message.role !== "assistant" || !Array.isArray(message.parts)) {
+    return false;
+  }
+  return (message.parts as Array<Record<string, unknown>>).some(
+    (part) => toolNameFromPart(part) === "createOpenQuery",
+  );
+}
+
+/** Jump to the user question that started this query segment, not the tool turn. */
+function userQuestionKeyBefore(
+  messages: UIMessage[],
+  assistantKey: string,
+): string {
+  const index = messages.findIndex((message) => message.key === assistantKey);
+  if (index <= 0) return assistantKey;
+
+  let segmentStart = 0;
+  for (let i = index - 1; i >= 0; i--) {
+    if (messageHasCreateOpenQuery(messages[i]!)) {
+      segmentStart = i + 1;
+      break;
+    }
+  }
+
+  for (let i = segmentStart; i < index; i++) {
+    if (messages[i]!.role === "user") return messages[i]!.key;
+  }
+
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages[i]!.role === "user") return messages[i]!.key;
+  }
+
+  return assistantKey;
+}
+
+/** Map open queries to the user message that started them. */
+function buildQueryMessageAnchors(messages: UIMessage[] | undefined): {
+  byQueryId: Map<string, string>;
+  byTitle: Map<string, string>;
+} {
+  const list = messages ?? [];
+  const byQueryId = new Map<string, string>();
+  const byTitle = new Map<string, string>();
+  const searchFallback = new Map<string, string>();
+
+  for (const message of list) {
+    if (message.role !== "assistant" || !Array.isArray(message.parts)) continue;
+
+    for (const part of message.parts as Array<Record<string, unknown>>) {
+      const toolName = toolNameFromPart(part);
+      if (!toolName) continue;
+
+      if (toolName === "createOpenQuery") {
+        const questionKey = userQuestionKeyBefore(list, message.key);
+        const queryId = queryIdFromCreateOutput(toolOutputFromPart(part));
+        if (queryId && !byQueryId.has(queryId)) {
+          byQueryId.set(queryId, questionKey);
+        }
+        const title = titleFromCreateInput(toolInputFromPart(part));
+        if (title && !byTitle.has(title.toLowerCase())) {
+          byTitle.set(title.toLowerCase(), questionKey);
+        }
+        continue;
+      }
+
+      if (
+        toolName === "searchProducts" ||
+        toolName === "scrapeProduct" ||
+        toolName === "listFindings"
+      ) {
+        const queryId = queryIdFromToolInput(toolInputFromPart(part));
+        if (queryId && !searchFallback.has(queryId)) {
+          searchFallback.set(
+            queryId,
+            userQuestionKeyBefore(list, message.key),
+          );
+        }
+      }
+    }
+  }
+
+  for (const [queryId, messageKey] of searchFallback) {
+    if (!byQueryId.has(queryId)) {
+      byQueryId.set(queryId, messageKey);
+    }
+  }
+
+  return { byQueryId, byTitle };
+}
+
+function resolveQueryMessageKey(
+  query: { _id: string; title: string },
+  anchors: {
+    byQueryId: Map<string, string>;
+    byTitle: Map<string, string>;
+  },
+): string | null {
+  return (
+    anchors.byQueryId.get(query._id) ??
+    anchors.byTitle.get(query.title.trim().toLowerCase()) ??
+    null
+  );
 }
 
 function productsFromToolOutput(output: unknown): ProductCardData[] {
@@ -337,182 +359,6 @@ function buildDraftFromReplySelections(
     .join("\n");
 }
 
-function ProductCard({
-  product,
-  onSetVerdict,
-  shoppingLists,
-  onAddToList,
-}: {
-  product: ProductCardData;
-  onSetVerdict?: (
-    findingId: Id<"findings">,
-    verdict: "accepted" | "rejected" | null,
-  ) => void;
-  shoppingLists?: ShoppingListSummary[];
-  onAddToList?: (
-    findingId: Id<"findings">,
-    target: Id<"shoppingLists"> | { createName: string },
-  ) => Promise<Id<"shoppingLists">>;
-}) {
-  const priceLabel = formatPrice(product.price, product.currency);
-  const isAccepted = product.verdict === "accepted";
-  const canJudge = Boolean(product._id && onSetVerdict);
-  const canAdd = Boolean(product._id && onAddToList);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [newListName, setNewListName] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addedListId, setAddedListId] = useState<Id<"shoppingLists"> | null>(
-    null,
-  );
-
-  async function addToTarget(
-    target: Id<"shoppingLists"> | { createName: string },
-  ) {
-    if (!product._id || !onAddToList || adding) return;
-    setAdding(true);
-    try {
-      const listId = await onAddToList(product._id, target);
-      setPickerOpen(false);
-      setNewListName("");
-      setAddedListId(listId);
-    } catch (error) {
-      console.error("Failed to add to shopping list", error);
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  return (
-    <article
-      className={`product-card${isAccepted ? " is-accepted" : ""}`}
-    >
-      <a
-        className="product-card-media"
-        href={product.url}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open ${product.title}`}
-      >
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt="" loading="lazy" />
-        ) : (
-          <div className="product-card-placeholder" aria-hidden="true">
-            No image
-          </div>
-        )}
-      </a>
-      <div className="product-card-body">
-        <div className="product-card-meta">
-          {product.source ? (
-            <span className="product-source">{product.source}</span>
-          ) : null}
-          {product.isNew ? <span className="badge">New</span> : null}
-          {isAccepted ? <span className="badge badge-liked">Liked</span> : null}
-        </div>
-        <strong>
-          <a href={product.url} target="_blank" rel="noreferrer">
-            {product.title}
-          </a>
-        </strong>
-        {priceLabel ? <p className="product-price">{priceLabel}</p> : null}
-        {product.summary ? (
-          <p className="product-summary">{product.summary}</p>
-        ) : null}
-        {canJudge && product._id && onSetVerdict ? (
-          <div className="product-verdict" role="group" aria-label="Rate product">
-            <button
-              type="button"
-              className={`product-verdict-btn${isAccepted ? " is-selected" : ""}`}
-              aria-label={isAccepted ? "Unlike" : "Like"}
-              aria-pressed={isAccepted}
-              title={isAccepted ? "Unlike" : "Like"}
-              onClick={() =>
-                onSetVerdict(product._id!, isAccepted ? null : "accepted")
-              }
-            >
-              <IconThumbsUp />
-            </button>
-            {!isAccepted ? (
-              <button
-                type="button"
-                className="product-verdict-btn product-verdict-btn-reject"
-                aria-label="Reject"
-                title="Reject"
-                onClick={() => onSetVerdict(product._id!, "rejected")}
-              >
-                <IconX />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {canAdd ? (
-          <div className="product-verdict" role="group" aria-label="Shopping list">
-            <button
-              type="button"
-              className={`product-add-list-text${pickerOpen ? " is-selected" : ""}`}
-              aria-expanded={pickerOpen}
-              title="Add to list"
-              onClick={() => {
-                setAddedListId(null);
-                setPickerOpen((open) => !open);
-              }}
-            >
-              <IconPlus />
-              Add to list
-            </button>
-          </div>
-        ) : null}
-        {addedListId ? (
-          <p className="list-added-note">
-            Added.{" "}
-            <Link to={`/app/lists?list=${addedListId}`}>View shopping list</Link>
-          </p>
-        ) : null}
-        {pickerOpen && canAdd ? (
-          <div className="list-picker" role="listbox" aria-label="Choose list">
-            {(shoppingLists ?? []).length === 0 ? (
-              <p className="hint">No lists yet — create one below.</p>
-            ) : (
-              (shoppingLists ?? []).map((list) => (
-                <button
-                  key={list._id}
-                  type="button"
-                  className="list-picker-option"
-                  disabled={adding}
-                  onClick={() => void addToTarget(list._id)}
-                >
-                  {list.name}
-                </button>
-              ))
-            )}
-            <form
-              className="list-picker-create"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = newListName.trim();
-                if (!name) return;
-                void addToTarget({ createName: name });
-              }}
-            >
-              <input
-                type="text"
-                value={newListName}
-                onChange={(event) => setNewListName(event.target.value)}
-                placeholder="New list name"
-                aria-label="New list name"
-                disabled={adding}
-              />
-              <button type="submit" disabled={adding || !newListName.trim()}>
-                {adding ? "…" : "Create"}
-              </button>
-            </form>
-          </div>
-        ) : null}
-      </div>
-    </article>
-  );
-}
-
 function ReplyChoices({
   questions,
   selections,
@@ -582,6 +428,7 @@ function MessageBubble({
   onSetVerdict,
   shoppingLists,
   onAddToList,
+  highlighted,
 }: {
   message: UIMessage;
   findingsByUrl: Map<string, ProductCardData>;
@@ -598,6 +445,7 @@ function MessageBubble({
     findingId: Id<"findings">,
     target: Id<"shoppingLists"> | { createName: string },
   ) => Promise<Id<"shoppingLists">>;
+  highlighted?: boolean;
 }) {
   const [text] = useSmoothText(message.text ?? "", {
     startStreaming: message.status === "streaming",
@@ -613,7 +461,10 @@ function MessageBubble({
   );
 
   return (
-    <article className={`message ${role}`}>
+    <article
+      className={`message ${role}${highlighted ? " is-highlighted" : ""}`}
+      data-message-key={message.key}
+    >
       <div className="meta">{role === "user" ? "You" : "Carter"}</div>
       <div className="body">
         {text || (message.status === "streaming" ? "…" : "")}
@@ -623,6 +474,7 @@ function MessageBubble({
           {products.map((product) => (
             <ProductCard
               key={product.url}
+              variant="chat"
               product={product}
               onSetVerdict={onSetVerdict}
               shoppingLists={shoppingLists}
@@ -685,8 +537,25 @@ function storeThreadsSidebarOpen(open: boolean) {
   }
 }
 
+function readContextPanelOpen() {
+  try {
+    const raw = localStorage.getItem(CONTEXT_PANEL_KEY);
+    if (raw == null) return true;
+    return raw === "1";
+  } catch {
+    return true;
+  }
+}
+
+function storeContextPanelOpen(open: boolean) {
+  try {
+    localStorage.setItem(CONTEXT_PANEL_KEY, open ? "1" : "0");
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
 export default function ChatApp() {
-  const navigate = useNavigate();
   const { data: authSession } = authClient.useSession();
   const ensureSession = useMutation(api.sessions.getOrCreate);
   const createSession = useMutation(api.sessions.create);
@@ -701,15 +570,20 @@ export default function ChatApp() {
     threadId: string;
   } | null>(null);
   const [threadsOpen, setThreadsOpen] = useState(readThreadsSidebarOpen);
+  const [contextOpen, setContextOpen] = useState(readContextPanelOpen);
+  const [knowsExpanded, setKnowsExpanded] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
-  const [contextTab, setContextTab] = useState<ContextTab>("knows");
   const [draft, setDraft] = useState("");
   const [replySelections, setReplySelections] = useState<
     Record<string, ReplySelection>
   >({});
   const [sending, setSending] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+  const [highlightedMessageKey, setHighlightedMessageKey] = useState<
+    string | null
+  >(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  const stickToBottomRef = useRef(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -717,6 +591,17 @@ export default function ChatApp() {
   const activeTitle =
     conversations?.find((row) => row.sessionId === sessionId)?.title ??
     "New chat";
+
+  const composerPlaceholder = useMemo(() => {
+    if (activeTitle && activeTitle !== "New chat") {
+      const short =
+        activeTitle.length > 72
+          ? `${activeTitle.slice(0, 69).trimEnd()}…`
+          : activeTitle;
+      return `Continue: ${short}`;
+    }
+    return DEFAULT_COMPOSER_PLACEHOLDER;
+  }, [activeTitle]);
 
   const filteredConversations = useMemo(() => {
     const rows = conversations ?? [];
@@ -733,6 +618,9 @@ export default function ChatApp() {
     setThreadId(nextThreadId);
     setDraft("");
     setReplySelections({});
+    setKnowsExpanded(false);
+    setHighlightedMessageKey(null);
+    stickToBottomRef.current = true;
     const userId = authSession?.user?.id;
     if (userId) storeActiveSessionId(userId, nextSessionId);
     if (
@@ -753,22 +641,20 @@ export default function ChatApp() {
     });
   }
 
+  function toggleContextPanel() {
+    setContextOpen((open) => {
+      const next = !open;
+      storeContextPanelOpen(next);
+      return next;
+    });
+  }
+
   function openSidebarForSearch() {
     if (!threadsOpen) {
       setThreadsOpen(true);
       storeThreadsSidebarOpen(true);
     }
     queueMicrotask(() => searchInputRef.current?.focus());
-  }
-
-  async function onSignOut() {
-    setSigningOut(true);
-    try {
-      await authClient.signOut();
-      navigate("/", { replace: true });
-    } finally {
-      setSigningOut(false);
-    }
   }
 
   async function onNewChat() {
@@ -878,9 +764,52 @@ export default function ChatApp() {
 
   useEffect(() => {
     const el = messagesRef.current;
-    if (!el) return;
+    if (!el || !stickToBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [messages, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current != null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const queryMessageAnchors = useMemo(
+    () => buildQueryMessageAnchors(messages),
+    [messages],
+  );
+
+  function onMessagesScroll() {
+    const el = messagesRef.current;
+    if (!el) return;
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 96;
+  }
+
+  function jumpToMessage(messageKey: string) {
+    const root = messagesRef.current;
+    if (!root) return;
+    const target = root.querySelector(
+      `[data-message-key="${CSS.escape(messageKey)}"]`,
+    );
+    if (!(target instanceof HTMLElement)) return;
+
+    stickToBottomRef.current = false;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageKey(messageKey);
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedMessageKey((current) =>
+        current === messageKey ? null : current,
+      );
+      highlightTimerRef.current = null;
+    }, 2200);
+  }
 
   const findingsByUrl = useMemo(() => {
     const map = new Map<string, ProductCardData>();
@@ -979,6 +908,7 @@ export default function ChatApp() {
     event.preventDefault();
     if (!sessionId || !threadId || !draft.trim() || sending) return;
     setSending(true);
+    stickToBottomRef.current = true;
     const prompt = draft.trim();
     setDraft("");
     setReplySelections({});
@@ -991,47 +921,43 @@ export default function ChatApp() {
 
   const prefChips = useMemo(() => {
     const prefs = profile?.prefs;
-    if (!prefs) return [] as string[];
-    const chips: string[] = [];
-    if (prefs.budgetMax != null) {
-      chips.push(
-        prefs.budgetMin != null
+    if (!prefs) return [] as Array<{ label: string; key: string }>;
+    const chips: Array<{ label: string; key: string }> = [];
+    if (prefs.budgetMax != null || prefs.budgetMin != null) {
+      const label =
+        prefs.budgetMin != null && prefs.budgetMax != null
           ? `$${prefs.budgetMin}–$${prefs.budgetMax}`
-          : `up to $${prefs.budgetMax}`,
-      );
+          : prefs.budgetMax != null
+            ? `up to $${prefs.budgetMax}`
+            : `from $${prefs.budgetMin}`;
+      chips.push({ key: `budget-${label}`, label });
     }
-    for (const item of prefs.categories ?? []) chips.push(item);
-    for (const item of prefs.styles ?? []) chips.push(item);
-    for (const item of prefs.useCases ?? []) chips.push(item);
-    for (const item of prefs.constraints ?? []) chips.push(item);
-    return chips.slice(0, 12);
+    for (const item of prefs.brandsPrefer ?? []) {
+      chips.push({ key: `brand-${item}`, label: item });
+    }
+    for (const item of prefs.styles ?? []) {
+      chips.push({ key: `style-${item}`, label: item });
+    }
+    for (const item of prefs.categories ?? []) {
+      chips.push({ key: `cat-${item}`, label: item });
+    }
+    for (const item of prefs.useCases ?? []) {
+      chips.push({ key: `use-${item}`, label: item });
+    }
+    for (const item of prefs.constraints ?? []) {
+      chips.push({ key: `con-${item}`, label: item });
+    }
+    return chips.slice(0, 16);
   }, [profile]);
 
-  return (
-    <div className="app-shell app-shell--chat">
-      <header className="app-topbar">
-        <h1 className="app-topbar-brand">Carter</h1>
-        <div className="app-topbar-actions">
-          <Link className="btn btn-ghost btn-compact" to="/app/lists">
-            Lists
-          </Link>
-          {authSession?.user?.email ? (
-            <span className="account-email">{authSession.user.email}</span>
-          ) : null}
-          <ThemeToggle />
-          <button
-            type="button"
-            className="btn btn-ghost btn-compact"
-            onClick={() => void onSignOut()}
-            disabled={signingOut}
-          >
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
-        </div>
-      </header>
+  const knowsSummary =
+    profile?.summary?.trim() ||
+    "Preferences appear here as Carter learns your taste.";
 
+  return (
+    <AppShell variant="chat">
       <div
-        className={`workspace${threadsOpen ? " workspace--threads" : " workspace--rail"}`}
+        className={`workspace${threadsOpen ? " workspace--threads" : " workspace--rail"}${contextOpen ? " workspace--context" : " workspace--context-collapsed"}`}
       >
         {threadsOpen ? (
           <button
@@ -1102,6 +1028,7 @@ export default function ChatApp() {
                             selectConversation(row.sessionId, row.threadId)
                           }
                           aria-current={active ? "true" : undefined}
+                          title={row.title}
                         >
                           <span className="thread-item-title">{row.title}</span>
                         </button>
@@ -1148,15 +1075,29 @@ export default function ChatApp() {
           <section className="panel chat-panel" aria-label="Chat with Carter">
             <div className="chat-header">
               <div className="chat-header-copy">
-                <h2>{activeTitle}</h2>
+                <h2 title={activeTitle}>{activeTitle}</h2>
                 <p>Carter asks first, then hunts.</p>
               </div>
+              <button
+                type="button"
+                className={`icon-btn context-toggle${contextOpen ? " is-active" : ""}`}
+                onClick={toggleContextPanel}
+                aria-pressed={contextOpen}
+                aria-controls="context-panel"
+                aria-label={
+                  contextOpen ? "Hide context panel" : "Show context panel"
+                }
+                title={contextOpen ? "Hide context" : "Show context"}
+              >
+                <IconPanel />
+              </button>
             </div>
             <div
               className="messages"
               role="log"
               aria-live="polite"
               ref={messagesRef}
+              onScroll={onMessagesScroll}
             >
               {(messages ?? []).length === 0 ? (
                 <p className="empty">
@@ -1178,6 +1119,7 @@ export default function ChatApp() {
                     onSetVerdict={onSetVerdict}
                     shoppingLists={shoppingLists ?? undefined}
                     onAddToList={onAddToList}
+                    highlighted={message.key === highlightedMessageKey}
                   />
                 ))
               )}
@@ -1187,7 +1129,7 @@ export default function ChatApp() {
                 ref={composerRef}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="I need a compact desk lamp for late-night reading…"
+                placeholder={composerPlaceholder}
                 aria-label="Message Carter"
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -1205,134 +1147,139 @@ export default function ChatApp() {
             </form>
           </section>
 
-          <aside className="panel context-panel" aria-label="Shopping context">
-            <div className="context-tabs" role="tablist" aria-label="Context">
-              {(
-                [
-                  ["knows", "Knows"],
-                  ["queries", "Queries"],
-                  ["findings", "Findings"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  id={`context-tab-${id}`}
-                  aria-selected={contextTab === id}
-                  aria-controls={`context-panel-${id}`}
-                  className={`context-tab${contextTab === id ? " is-active" : ""}`}
-                  onClick={() => setContextTab(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="context-tab-body">
-              {contextTab === "knows" ? (
-                <div
-                  id="context-panel-knows"
-                  role="tabpanel"
-                  aria-labelledby="context-tab-knows"
-                  className="context-pane"
-                >
-                  <section className="side-panel context-section">
-                    <h3>What Carter knows</h3>
-                    <p className="hint">
-                      {profile?.summary ??
-                        "Preferences appear here as Carter learns your taste."}
-                    </p>
-                    <div className="chips">
-                      {prefChips.length === 0 ? (
-                        <span className="empty">No preferences yet</span>
-                      ) : (
-                        prefChips.map((chip) => (
-                          <span className="chip" key={chip}>
-                            {chip}
-                          </span>
-                        ))
-                      )}
+          {contextOpen ? (
+            <aside
+              id="context-panel"
+              className="panel context-panel"
+              aria-label="Shopping context"
+            >
+              <div className="context-stack">
+                <section className="side-panel context-section">
+                  <h3>What Carter knows</h3>
+                  <div className="chips">
+                    {prefChips.length === 0 ? (
+                      <span className="empty">No preferences yet</span>
+                    ) : (
+                      prefChips.map((chip) => (
+                        <span className="chip" key={chip.key}>
+                          {chip.label}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                  {profile?.summary ? (
+                    <div className="knows-summary">
+                      <button
+                        type="button"
+                        className="knows-summary-toggle"
+                        aria-expanded={knowsExpanded}
+                        onClick={() => setKnowsExpanded((open) => !open)}
+                      >
+                        {knowsExpanded ? "Hide details" : "Show details"}
+                      </button>
+                      {knowsExpanded ? (
+                        <p className="hint knows-summary-text">
+                          {knowsSummary}
+                        </p>
+                      ) : null}
                     </div>
-                  </section>
-                </div>
-              ) : null}
+                  ) : (
+                    <p className="hint knows-summary-text">{knowsSummary}</p>
+                  )}
+                </section>
 
-              {contextTab === "queries" ? (
-                <div
-                  id="context-panel-queries"
-                  role="tabpanel"
-                  aria-labelledby="context-tab-queries"
-                  className="context-pane"
-                >
-                  <section className="side-panel context-section">
-                    <h3>Open queries</h3>
-                    <p className="hint">
-                      Live shopping briefs Carter is watching.
-                    </p>
-                    <div className="query-list">
-                      {(openQueries ?? []).length === 0 ? (
-                        <p className="empty">No open queries yet.</p>
-                      ) : (
-                        (openQueries ?? []).map((query) => (
-                          <div className="query-card" key={query._id}>
+                <section className="side-panel context-section">
+                  <h3>Open queries</h3>
+                  <p className="hint">
+                    Live shopping briefs Carter is watching. Click a card to
+                    jump there in chat.
+                  </p>
+                  <div className="query-list">
+                    {(openQueries ?? []).length === 0 ? (
+                      <p className="empty">No open queries yet.</p>
+                    ) : (
+                      (openQueries ?? []).map((query) => {
+                        const messageKey = resolveQueryMessageKey(
+                          query,
+                          queryMessageAnchors,
+                        );
+                        const content = (
+                          <>
                             <strong>{query.title}</strong>
                             <p>{query.brief}</p>
-                            <span className="badge">{query.status}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </section>
-                </div>
-              ) : null}
+                            <div className="query-card-footer">
+                              <span className="badge">{query.status}</span>
+                              {messageKey ? (
+                                <span className="query-jump-label">
+                                  View in chat
+                                </span>
+                              ) : null}
+                            </div>
+                          </>
+                        );
 
-              {contextTab === "findings" ? (
-                <div
-                  id="context-panel-findings"
-                  role="tabpanel"
-                  aria-labelledby="context-tab-findings"
-                  className="context-pane"
-                >
-                  <section className="side-panel context-section">
-                    <h3>Findings</h3>
-                    <p className="hint">
-                      Products Carter found. Like to keep, Pass to hide, or add
-                      to a shopping list when you intend to buy.
-                    </p>
-                    <div className="finding-list">
-                      {(findings ?? []).length === 0 ? (
-                        <p className="empty">Nothing found yet.</p>
-                      ) : (
-                        (findings ?? []).map((finding) => (
-                          <ProductCard
-                            key={finding._id}
-                            product={{
-                              _id: finding._id,
-                              title: finding.title,
-                              url: finding.url,
-                              price: finding.price,
-                              currency: finding.currency,
-                              source: finding.source,
-                              summary: finding.summary,
-                              imageUrl: finding.imageUrl,
-                              isNew: finding.isNew,
-                              verdict: finding.verdict,
-                            }}
-                            onSetVerdict={onSetVerdict}
-                            shoppingLists={shoppingLists ?? undefined}
-                            onAddToList={onAddToList}
-                          />
-                        ))
-                      )}
-                    </div>
-                  </section>
-                </div>
-              ) : null}
-            </div>
-          </aside>
+                        if (!messageKey) {
+                          return (
+                            <div className="query-card" key={query._id}>
+                              {content}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <button
+                            type="button"
+                            className="query-card query-card--jump"
+                            key={query._id}
+                            onClick={() => jumpToMessage(messageKey)}
+                          >
+                            {content}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </section>
+
+                <section className="side-panel context-section">
+                  <h3>Findings</h3>
+                  <p className="hint">
+                    Products Carter found. Like to keep, Pass to hide, or add to
+                    a shopping list when you intend to buy.
+                  </p>
+                  <div className="finding-list">
+                    {(findings ?? []).length === 0 ? (
+                      <p className="empty">Nothing found yet.</p>
+                    ) : (
+                      (findings ?? []).map((finding) => (
+                        <ProductCard
+                          key={finding._id}
+                          variant="chat"
+                          product={{
+                            _id: finding._id,
+                            title: finding.title,
+                            url: finding.url,
+                            price: finding.price,
+                            currency: finding.currency,
+                            source: finding.source,
+                            summary: finding.summary,
+                            imageUrl: finding.imageUrl,
+                            isNew: finding.isNew,
+                            verdict: finding.verdict,
+                          }}
+                          onSetVerdict={onSetVerdict}
+                          shoppingLists={shoppingLists ?? undefined}
+                          onAddToList={onAddToList}
+                        />
+                      ))
+                    )}
+                  </div>
+                </section>
+              </div>
+            </aside>
+          ) : null}
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }
