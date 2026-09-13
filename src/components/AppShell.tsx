@@ -100,7 +100,10 @@ export function AppTopbar({ current }: { current: AppNav }) {
             onClick={() => setMenuOpen((open) => !open)}
           >
             {email ? (
-              <span className="account-email">{email}</span>
+              <>
+                <span className="account-email">{email}</span>
+                <span className="account-label">Account</span>
+              </>
             ) : (
               "Account"
             )}

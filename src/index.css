@@ -132,6 +132,7 @@ a {
   margin: 0;
   height: 100dvh;
   max-height: 100dvh;
+  min-width: 0;
   overflow: hidden;
   padding: 0.75rem 1rem;
   gap: 0.75rem;
@@ -143,12 +144,14 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  min-width: 0;
   min-height: 2.5rem;
 }
 
 .app-topbar-brand {
   margin: 0;
+  flex-shrink: 0;
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 650;
@@ -165,23 +168,32 @@ a.app-topbar-brand:hover {
 .app-topbar-actions {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .app-topbar-nav {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .account-menu {
   position: relative;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .account-menu-trigger {
-  max-width: 14rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.account-label {
+  display: none;
 }
 
 .account-menu-panel {
@@ -559,12 +571,17 @@ a.app-topbar-brand:hover {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(240px, 0.72fr);
+  grid-template-columns: minmax(0, 1.75fr) minmax(0, 0.72fr);
   gap: 1rem;
   align-items: stretch;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   height: 100%;
+}
+
+.layout > * {
+  min-width: 0;
 }
 
 .workspace--context-collapsed .layout {
@@ -576,12 +593,18 @@ a.app-topbar-brand:hover {
   display: grid;
   gap: 1rem;
   align-items: stretch;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   height: 100%;
 }
 
+.workspace > * {
+  min-width: 0;
+}
+
 .workspace--threads {
-  grid-template-columns: minmax(220px, 16.5rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 16.5rem) minmax(0, 1fr);
 }
 
 .workspace--rail {
@@ -763,6 +786,8 @@ a.app-topbar-brand:hover {
 .chat-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   overflow: hidden;
@@ -842,48 +867,62 @@ a.app-topbar-brand:hover {
 
 @media (max-width: 900px) {
   .app-shell--chat {
-    padding: 0.65rem 0.75rem;
+    padding: 0.55rem 0.65rem;
+    overflow-x: hidden;
+  }
+
+  .app-topbar {
+    gap: 0.5rem;
+  }
+
+  .app-topbar-actions {
+    gap: 0.35rem;
+  }
+
+  .app-topbar-nav .btn-compact {
+    padding: 0.4rem 0.65rem;
   }
 
   .account-email {
-    max-width: 9.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 7.5rem;
   }
 
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(11rem, 34%);
   }
 
   .workspace--context-collapsed .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
   .workspace--rail {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 0.65rem;
+    gap: 0.55rem;
   }
 
   .workspace--threads {
     display: block;
     height: 100%;
+    min-width: 0;
   }
 
   .workspace--threads .layout {
     width: 100%;
+    max-width: 100%;
     height: 100%;
+    min-width: 0;
   }
 
   .workspace--rail .threads-sidebar.is-collapsed {
     width: 100%;
+    max-width: 100%;
     height: auto;
     min-height: auto;
     max-height: none;
-    padding: 0.45rem 0.55rem;
+    padding: 0.4rem 0.5rem;
   }
 
   .workspace--rail .threads-rail {
@@ -909,9 +948,9 @@ a.app-topbar-brand:hover {
     position: fixed;
     z-index: 40;
     top: 3.4rem;
-    left: 0.75rem;
-    bottom: 0.75rem;
-    width: min(18rem, calc(100vw - 1.5rem));
+    left: 0.65rem;
+    bottom: 0.65rem;
+    width: min(18rem, calc(100vw - 1.3rem));
     height: auto;
     min-height: 0;
     max-height: none;
@@ -920,12 +959,87 @@ a.app-topbar-brand:hover {
 
   .chat-panel,
   .context-panel {
+    min-width: 0;
     min-height: 0;
+    max-width: 100%;
+  }
+
+  .chat-header {
+    padding: 0.85rem 0.9rem;
+    gap: 0.65rem;
+  }
+
+  .chat-header-copy h2 {
+    font-size: 1.15rem;
+  }
+
+  .messages {
+    padding: 0.85rem;
+  }
+
+  .message {
+    max-width: 100%;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .composer {
+    gap: 0.5rem;
+    padding: 0.7rem;
+  }
+
+  .product-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 0.65rem;
+    padding: 0.65rem;
+  }
+
+  .product-card-media {
+    width: 96px;
+    height: 96px;
+  }
+}
+
+@media (max-width: 640px) {
+  .account-email {
+    display: none;
+  }
+
+  .account-label {
+    display: inline;
+  }
+
+  .account-menu-trigger {
+    flex-shrink: 0;
+  }
+
+  .product-card,
+  .context-panel .product-card--chat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-card-media,
+  .context-panel .product-card--chat .product-card-media {
+    width: 100%;
+    height: 10rem;
+  }
+
+  .composer {
+    align-items: end;
+  }
+
+  .composer textarea {
+    min-height: 2.85rem;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .composer button {
+    padding: 0.7rem 0.95rem;
   }
 }
 
 .messages {
   overflow: auto;
+  min-width: 0;
   min-height: 0;
   padding: 1.1rem;
   display: grid;
@@ -935,6 +1049,8 @@ a.app-topbar-brand:hover {
 
 .message {
   max-width: min(100%, 42rem);
+  min-width: 0;
+  width: 100%;
   padding: 0.85rem 1rem;
   border-radius: 16px;
   border: 1px solid transparent;
@@ -953,6 +1069,8 @@ a.app-topbar-brand:hover {
 
 .message.user {
   justify-self: end;
+  width: auto;
+  max-width: min(100%, 42rem);
   background: var(--message-user-bg);
   color: var(--message-user-fg);
 }
@@ -979,7 +1097,10 @@ a.app-topbar-brand:hover {
 
 .message .body {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   line-height: 1.5;
+  min-width: 0;
 }
 
 .message .product-grid {
@@ -1079,6 +1200,8 @@ button.chip-reply-other:not(.is-selected) {
 .finding-list {
   display: grid;
   gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .product-card {
@@ -1089,6 +1212,8 @@ button.chip-reply-other:not(.is-selected) {
   border-radius: 14px;
   padding: 0.75rem;
   background: var(--surface);
+  min-width: 0;
+  max-width: 100%;
   animation: pop 0.45s ease both;
 }
 
@@ -1194,12 +1319,16 @@ button.chip-reply-other:not(.is-selected) {
   display: block;
   font-size: 0.95rem;
   line-height: 1.3;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .product-card a {
   font-weight: 600;
   text-decoration: none;
   color: inherit;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .product-card a:hover {
@@ -1432,16 +1561,20 @@ button.chip-reply-other:not(.is-selected) {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.65rem;
   padding: 0.9rem;
   border-top: 1px solid var(--line);
   background: var(--composer-bg);
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .composer textarea {
   resize: none;
+  min-width: 0;
+  width: 100%;
   min-height: 3.2rem;
   border-radius: 14px;
   border: 1px solid var(--line);
@@ -1459,6 +1592,8 @@ button.chip-reply-other:not(.is-selected) {
   color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .composer button:disabled,
