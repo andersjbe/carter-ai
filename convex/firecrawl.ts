@@ -1,10 +1,13 @@
 import { v } from "convex/values";
 import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
+
+/** Max Firecrawl detail scrapes after a search (credits). */
+const MAX_FIRECRAWL_ENRICH_PER_SEARCH = 3;
 
 const findingResultValidator = v.object({
   title: v.string(),
@@ -20,11 +23,33 @@ const findingResultValidator = v.object({
   imageUrl: v.union(v.string(), v.null()),
 });
 
+type FindingResult = {
+  title: string;
+  url: string;
+  source: "amazon" | "etsy" | "web";
+  summary: string | null;
+  price: number | null;
+  currency: string | null;
+  imageUrl: string | null;
+};
+
 function detectSource(url: string): "amazon" | "etsy" | "web" {
   const lower = url.toLowerCase();
   if (lower.includes("amazon.") || lower.includes("amzn.")) return "amazon";
   if (lower.includes("etsy.")) return "etsy";
   return "web";
+}
+
+function normalizeUrlKey(url: string): string {
+  try {
+    const parsed = new URL(url.trim());
+    parsed.hash = "";
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${host}${path}${parsed.search}`.toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
+  }
 }
 
 /** True when the URL looks like a product detail page, not a search/category SERP. */
@@ -244,6 +269,152 @@ function priceFromProduct(product: unknown): number | undefined {
   return undefined;
 }
 
+function metaContent(html: string, property: string): string | undefined {
+  const propRe = new RegExp(
+    `<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`,
+    "i",
+  );
+  const contentFirst = new RegExp(
+    `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${property}["']`,
+    "i",
+  );
+  return propRe.exec(html)?.[1] ?? contentFirst.exec(html)?.[1];
+}
+
+/**
+ * Free enrichment for open-web pages (no Firecrawl credits).
+ * Skips Amazon/Etsy — they usually block plain fetch.
+ */
+async function tryFreeEnrich(url: string): Promise<{
+  title?: string;
+  summary?: string;
+  price?: number;
+  imageUrl?: string;
+} | null> {
+  const source = detectSource(url);
+  if (source === "amazon" || source === "etsy") return null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: "text/plain" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return null;
+    const markdown = (await response.text()).slice(0, 12_000);
+    if (!markdown.trim()) return null;
+
+    const titleMatch = markdown.match(/^#\s+(.+)$/m);
+    const title = titleMatch?.[1]?.trim().slice(0, 200);
+    const summary = markdown
+      .replace(/^#\s+.+$/m, "")
+      .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+      .trim()
+      .slice(0, 500);
+    return {
+      title: title || undefined,
+      summary: summary || undefined,
+      price: parsePrice(markdown),
+      imageUrl: imageFromMarkdown(markdown),
+    };
+  } catch {
+    // Fall through to plain HTML fetch
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; CarterBot/1.0; +https://carter.local)",
+        Accept: "text/html",
+      },
+      signal: controller.signal,
+      redirect: "follow",
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return null;
+    const html = (await response.text()).slice(0, 200_000);
+    const title =
+      metaContent(html, "og:title") ??
+      /<title[^>]*>([^<]+)<\/title>/i.exec(html)?.[1]?.trim();
+    const description =
+      metaContent(html, "og:description") ??
+      metaContent(html, "description");
+    const imageUrl = asHttpUrl(metaContent(html, "og:image"));
+    return {
+      title: title?.slice(0, 200),
+      summary: description?.slice(0, 500),
+      price: parsePrice(description) ?? parsePrice(title),
+      imageUrl,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function findingFromPage(
+  url: string,
+  page: Record<string, unknown>,
+): FindingResult {
+  const metadata =
+    page.metadata && typeof page.metadata === "object"
+      ? (page.metadata as Record<string, unknown>)
+      : undefined;
+  const product = page.product;
+
+  const title = String(
+    (product &&
+    typeof product === "object" &&
+    typeof (product as { title?: unknown }).title === "string"
+      ? (product as { title: string }).title
+      : null) ??
+      metadata?.title ??
+      url,
+  ).slice(0, 200);
+
+  const summary =
+    typeof page.summary === "string"
+      ? page.summary
+      : product &&
+          typeof product === "object" &&
+          typeof (product as { description?: unknown }).description === "string"
+        ? String((product as { description: string }).description).slice(0, 500)
+        : typeof page.markdown === "string"
+          ? String(page.markdown).slice(0, 500)
+          : null;
+
+  const price =
+    priceFromProduct(product) ?? parsePrice(summary ?? undefined);
+  const currency = price !== undefined ? "USD" : undefined;
+  const source = detectSource(url);
+  const imageUrl = extractImageUrl(page);
+
+  return {
+    title,
+    url,
+    source,
+    summary,
+    price: price ?? null,
+    currency: currency ?? null,
+    imageUrl: imageUrl ?? null,
+  };
+}
+
+async function firecrawlScrapeLean(
+  ctx: ActionCtx,
+  url: string,
+): Promise<FindingResult> {
+  const page = await firecrawl.scrape(ctx, url, {
+    formats: ["markdown", "images", "product"],
+    onlyMainContent: true,
+  });
+  return findingFromPage(url, page as Record<string, unknown>);
+}
+
 export const searchAndStore = internalAction({
   args: {
     sessionId: v.id("sessions"),
@@ -251,6 +422,8 @@ export const searchAndStore = internalAction({
     searchQuery: v.string(),
     includeDomains: v.optional(v.array(v.string())),
     limit: v.optional(v.number()),
+    /** When false, skip detail enrich (digest rechecks). Default true. */
+    enrichNew: v.optional(v.boolean()),
   },
   returns: v.object({
     stored: v.number(),
@@ -259,31 +432,28 @@ export const searchAndStore = internalAction({
   }),
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 6, 10);
-    const fetchLimit = Math.min(limit * 2, 15);
+    // Small buffer so product-URL filtering still fills `limit` without
+    // doubling billed search results.
+    const fetchLimit = Math.min(limit + 2, 10);
+    const shouldEnrich = args.enrichNew !== false;
+
+    // Search only — no scrapeOptions (avoids +1 credit per result).
     const response = await firecrawl.search(ctx, args.searchQuery, {
       limit: fetchLimit,
       includeDomains: args.includeDomains,
-      scrapeOptions: {
-        formats: ["markdown", "summary", "images"],
-        onlyMainContent: true,
-      },
     });
 
-    // FirecrawlClient returns SearchResponse: { web?, news?, images?, developer? }
-    // (not the raw API envelope with a `data` wrapper).
     const hits = extractSearchHits(response);
+    const knownKeys = new Set(
+      await ctx.runQuery(internal.findings.listUrlKeysForQuery, {
+        queryId: args.queryId,
+      }),
+    );
 
     let stored = 0;
     let created = 0;
-    const results: Array<{
-      title: string;
-      url: string;
-      source: "amazon" | "etsy" | "web";
-      summary: string | null;
-      price: number | null;
-      currency: string | null;
-      imageUrl: string | null;
-    }> = [];
+    let firecrawlEnrichs = 0;
+    const results: FindingResult[] = [];
 
     for (const hit of hits) {
       if (results.length >= limit) break;
@@ -291,29 +461,67 @@ export const searchAndStore = internalAction({
       const url = String(hit.url ?? hit.sourceURL ?? "").trim();
       if (!url || !isProductPageUrl(url)) continue;
 
+      const urlKey = normalizeUrlKey(url);
+      if (knownKeys.has(urlKey)) continue;
+
       const metadata =
         hit.metadata && typeof hit.metadata === "object"
           ? (hit.metadata as { title?: string; description?: string })
           : undefined;
-      const title = String(
-        hit.title ?? metadata?.title ?? url,
-      ).slice(0, 200);
+      let title = String(hit.title ?? metadata?.title ?? url).slice(0, 200);
       const source = detectSource(url);
-      const summary =
+      let summary =
         typeof hit.description === "string"
           ? hit.description
-          : typeof hit.summary === "string"
-            ? hit.summary
-            : typeof metadata?.description === "string"
-              ? metadata.description
-              : typeof hit.markdown === "string"
-                ? hit.markdown.slice(0, 400)
-                : null;
-      const price =
-        priceFromProduct(hit.product) ??
-        parsePrice(summary ?? undefined) ??
-        parsePrice(title);
-      const imageUrl = extractImageUrl(hit);
+          : typeof metadata?.description === "string"
+            ? metadata.description
+            : null;
+      let price =
+        parsePrice(summary ?? undefined) ?? parsePrice(title) ?? undefined;
+      let imageUrl = extractImageUrl(hit);
+      let currency: string | undefined = price !== undefined ? "USD" : undefined;
+
+      // Enrich new product pages: free path for open web, lean Firecrawl for
+      // marketplaces / when free enrich fails — capped per search.
+      if (shouldEnrich) {
+        const needsDetail = price === undefined || !imageUrl;
+        if (needsDetail) {
+          let enriched = false;
+          if (source === "web") {
+            const free = await tryFreeEnrich(url);
+            if (free) {
+              if (free.title) title = free.title;
+              if (free.summary) summary = free.summary;
+              if (free.price !== undefined) {
+                price = free.price;
+                currency = "USD";
+              }
+              if (free.imageUrl) imageUrl = free.imageUrl;
+              enriched = free.price !== undefined || Boolean(free.imageUrl);
+            }
+          }
+
+          if (
+            !enriched &&
+            firecrawlEnrichs < MAX_FIRECRAWL_ENRICH_PER_SEARCH &&
+            (source !== "web" || needsDetail)
+          ) {
+            try {
+              const detail = await firecrawlScrapeLean(ctx, url);
+              title = detail.title || title;
+              summary = detail.summary ?? summary;
+              if (detail.price != null) {
+                price = detail.price;
+                currency = detail.currency ?? "USD";
+              }
+              if (detail.imageUrl) imageUrl = detail.imageUrl;
+              firecrawlEnrichs += 1;
+            } catch (error) {
+              console.error("Firecrawl enrich failed", url, error);
+            }
+          }
+        }
+      }
 
       const upserted = await ctx.runMutation(internal.findings.upsertFinding, {
         queryId: args.queryId,
@@ -321,11 +529,12 @@ export const searchAndStore = internalAction({
         title: title || url,
         url,
         price,
-        currency: price !== undefined ? "USD" : undefined,
+        currency,
         source,
         summary: summary ?? undefined,
         imageUrl: imageUrl ?? undefined,
       });
+      knownKeys.add(urlKey);
       stored += 1;
       if (upserted.created) created += 1;
       results.push({
@@ -334,7 +543,7 @@ export const searchAndStore = internalAction({
         source,
         summary,
         price: price ?? null,
-        currency: price !== undefined ? "USD" : null,
+        currency: price !== undefined ? (currency ?? "USD") : null,
         imageUrl: imageUrl ?? null,
       });
     }
@@ -361,97 +570,41 @@ export const scrapeProductPage = internalAction({
       );
     }
 
-    const page = await firecrawl.scrape(ctx, args.url, {
-      formats: [
-        "markdown",
-        "summary",
-        "images",
-        "product",
-        {
-          type: "json",
-          prompt:
-            "Extract product title, price number, currency, a one-sentence summary, and the main product image URL.",
-        },
-      ],
-      onlyMainContent: true,
-    });
-
-    const pageRecord = page as Record<string, unknown>;
-    const json =
-      pageRecord.json && typeof pageRecord.json === "object"
-        ? (pageRecord.json as Record<string, unknown>)
-        : {};
-    const metadata =
-      pageRecord.metadata && typeof pageRecord.metadata === "object"
-        ? (pageRecord.metadata as Record<string, unknown>)
-        : undefined;
-    const product = pageRecord.product;
-
-    const title = String(
-      (product &&
-      typeof product === "object" &&
-      typeof (product as { title?: unknown }).title === "string"
-        ? (product as { title: string }).title
-        : null) ??
-        json.title ??
-        metadata?.title ??
-        args.url,
-    ).slice(0, 200);
-
-    const summary =
-      typeof json.summary === "string"
-        ? json.summary
-        : typeof pageRecord.summary === "string"
-          ? pageRecord.summary
-          : product &&
-              typeof product === "object" &&
-              typeof (product as { description?: unknown }).description ===
-                "string"
-            ? String((product as { description: string }).description).slice(
-                0,
-                500,
-              )
-            : typeof pageRecord.markdown === "string"
-              ? String(pageRecord.markdown).slice(0, 500)
-              : null;
-
-    const price =
-      typeof json.price === "number"
-        ? json.price
-        : priceFromProduct(product) ??
-          parsePrice(String(json.price ?? summary ?? ""));
-    const currency =
-      typeof json.currency === "string"
-        ? json.currency
-        : price !== undefined
-          ? "USD"
-          : undefined;
     const source = detectSource(args.url);
-    const imageUrl =
-      asHttpUrl(json.imageUrl) ??
-      asHttpUrl(json.image) ??
-      extractImageUrl(pageRecord);
+    let result: FindingResult | null = null;
+
+    // Prefer free enrich for open web; Firecrawl only when needed.
+    if (source === "web") {
+      const free = await tryFreeEnrich(args.url);
+      if (free && (free.title || free.summary || free.price !== undefined)) {
+        result = {
+          title: (free.title ?? args.url).slice(0, 200),
+          url: args.url,
+          source,
+          summary: free.summary ?? null,
+          price: free.price ?? null,
+          currency: free.price !== undefined ? "USD" : null,
+          imageUrl: free.imageUrl ?? null,
+        };
+      }
+    }
+
+    if (!result) {
+      result = await firecrawlScrapeLean(ctx, args.url);
+    }
 
     await ctx.runMutation(internal.findings.upsertFinding, {
       queryId: args.queryId as Id<"openQueries">,
       sessionId: args.sessionId,
-      title,
+      title: result.title,
       url: args.url,
-      price,
-      currency,
-      source,
-      summary: summary ?? undefined,
-      imageUrl: imageUrl ?? undefined,
+      price: result.price ?? undefined,
+      currency: result.currency ?? undefined,
+      source: result.source,
+      summary: result.summary ?? undefined,
+      imageUrl: result.imageUrl ?? undefined,
     });
 
-    return {
-      title,
-      url: args.url,
-      price: price ?? null,
-      currency: currency ?? null,
-      summary,
-      source,
-      imageUrl: imageUrl ?? null,
-    };
+    return result;
   },
 });

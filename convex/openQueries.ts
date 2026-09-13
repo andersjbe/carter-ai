@@ -102,6 +102,7 @@ export const listActive = internalQuery({
       brief: v.string(),
       searchHints: v.union(v.array(v.string()), v.null()),
       sources: v.union(v.array(sourceValidator), v.null()),
+      lastCheckedAt: v.union(v.number(), v.null()),
     }),
   ),
   handler: async (ctx) => {
@@ -116,6 +117,7 @@ export const listActive = internalQuery({
       brief: row.brief,
       searchHints: row.searchHints ?? null,
       sources: row.sources ?? null,
+      lastCheckedAt: row.lastCheckedAt ?? null,
     }));
   },
 });

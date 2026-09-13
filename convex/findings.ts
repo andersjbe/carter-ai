@@ -19,6 +19,18 @@ function fingerprint(url: string, title: string) {
   );
 }
 
+function normalizeUrlKey(url: string): string {
+  try {
+    const parsed = new URL(url.trim());
+    parsed.hash = "";
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${host}${path}${parsed.search}`.toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
 export const listForSession = query({
   args: { sessionId: v.id("sessions") },
   returns: v.array(
@@ -203,6 +215,19 @@ export const listByQueryInternal = internalQuery({
       summary: row.summary ?? null,
       imageUrl: row.imageUrl ?? null,
     }));
+  },
+});
+
+/** Normalized URL keys already stored for a query — used to skip re-scrapes. */
+export const listUrlKeysForQuery = internalQuery({
+  args: { queryId: v.id("openQueries") },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("findings")
+      .withIndex("by_query", (q) => q.eq("queryId", args.queryId))
+      .take(100);
+    return rows.map((row) => normalizeUrlKey(row.url));
   },
 });
 

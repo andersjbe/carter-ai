@@ -2,51 +2,65 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
+/** Skip rechecks that ran within this window (matches cron cadence). */
+const MIN_RECHECK_GAP_MS = 6 * 60 * 60 * 1000;
+
 export const recheckOpenQueries = internalAction({
   args: {},
   returns: v.object({
     checked: v.number(),
     emailed: v.number(),
+    skipped: v.number(),
   }),
   handler: async (ctx) => {
     const active = await ctx.runQuery(internal.openQueries.listActive, {});
     let checked = 0;
     let emailed = 0;
+    let skipped = 0;
+    const now = Date.now();
 
     for (const query of active) {
-      checked += 1;
-      const hints =
-        query.searchHints && query.searchHints.length > 0
-          ? query.searchHints.slice(0, 2)
-          : [query.title];
+      if (
+        query.lastCheckedAt &&
+        now - query.lastCheckedAt < MIN_RECHECK_GAP_MS
+      ) {
+        skipped += 1;
+        continue;
+      }
 
-      for (const hint of hints) {
-        const sources = query.sources ?? ["web"];
-        for (const source of sources.slice(0, 2)) {
-          const includeDomains =
-            source === "amazon"
-              ? ["amazon.com"]
-              : source === "etsy"
-                ? ["etsy.com"]
-                : undefined;
-          const searchQuery =
-            source === "amazon"
-              ? `${hint} site:amazon.com`
-              : source === "etsy"
-                ? `${hint} site:etsy.com`
-                : hint;
-          try {
-            await ctx.runAction(internal.firecrawl.searchAndStore, {
-              sessionId: query.sessionId,
-              queryId: query._id,
-              searchQuery,
-              includeDomains,
-              limit: 4,
-            });
-          } catch (error) {
-            console.error("Firecrawl recheck failed", error);
-          }
-        }
+      checked += 1;
+      // One hint + one source per run — digests were the main credit sink.
+      const hint =
+        query.searchHints && query.searchHints.length > 0
+          ? query.searchHints[0]!
+          : query.title;
+      const sources = query.sources ?? ["web"];
+      const source = sources[0] ?? "web";
+
+      const includeDomains =
+        source === "amazon"
+          ? ["amazon.com"]
+          : source === "etsy"
+            ? ["etsy.com"]
+            : undefined;
+      const searchQuery =
+        source === "amazon"
+          ? `${hint} site:amazon.com`
+          : source === "etsy"
+            ? `${hint} site:etsy.com`
+            : hint;
+
+      try {
+        await ctx.runAction(internal.firecrawl.searchAndStore, {
+          sessionId: query.sessionId,
+          queryId: query._id,
+          searchQuery,
+          includeDomains,
+          limit: 4,
+          enrichNew: false,
+        });
+      } catch (error) {
+        console.error("Firecrawl recheck failed", error);
       }
 
       const fresh = await ctx.runQuery(internal.findings.listNewForQuery, {
@@ -62,7 +76,7 @@ export const recheckOpenQueries = internalAction({
       // Avoid spamming more than once per 6 hours per session.
       if (
         alerts.lastEmailedAt &&
-        Date.now() - alerts.lastEmailedAt < 6 * 60 * 60 * 1000
+        now - alerts.lastEmailedAt < 6 * 60 * 60 * 1000
       ) {
         continue;
       }
@@ -80,12 +94,12 @@ export const recheckOpenQueries = internalAction({
               price: number | null;
               currency: string | null;
             }) => {
-            const price =
-              item.price != null
-                ? ` — ${item.currency ?? "USD"} ${item.price}`
-                : "";
-            return `• ${item.title}${price}\n  ${item.url}`;
-          },
+              const price =
+                item.price != null
+                  ? ` — ${item.currency ?? "USD"} ${item.price}`
+                  : "";
+              return `• ${item.title}${price}\n  ${item.url}`;
+            },
           )
           .join("\n\n");
 
@@ -105,6 +119,6 @@ export const recheckOpenQueries = internalAction({
       }
     }
 
-    return { checked, emailed };
+    return { checked, emailed, skipped };
   },
 });

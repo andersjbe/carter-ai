@@ -5,7 +5,7 @@ const crons = cronJobs();
 
 crons.interval(
   "recheck open product queries",
-  { hours: 3 },
+  { hours: 6 },
   internal.digests.recheckOpenQueries,
   {},
 );
