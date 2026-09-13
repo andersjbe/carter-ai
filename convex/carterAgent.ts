@@ -168,70 +168,60 @@ const scrapeProduct = createTool({
   },
 });
 
+type FindingForAgent = {
+  title: string;
+  url: string;
+  price: number | null;
+  currency: string | null;
+  source: string;
+  summary: string | null;
+  imageUrl: string | null;
+  verdict: "accepted" | "rejected" | null;
+};
+
+type RejectedSummary = { title: string; url: string };
+
 const listFindings = createTool({
   description:
-    "List product findings already stored for this shopper session. Call this before searchProducts when the user asks about prior picks or you may have already searched.",
+    "List product findings already stored for this shopper session, including user verdicts (accepted = liked, rejected = passed). Call before searchProducts when the user already reacted to picks or you may have searched. Prefer similar to accepted; never re-pitch rejected URLs.",
   inputSchema: z.object({
     queryId: z.string().optional(),
   }),
   execute: async (
     ctx: CarterCtx,
     args,
-  ): Promise<
-    Array<{
-      title: string;
-      url: string;
-      price: number | null;
-      currency: string | null;
-      source: string;
-      summary: string | null;
-      imageUrl: string | null;
-    }>
-  > => {
+  ): Promise<{
+    findings: FindingForAgent[];
+    rejected: RejectedSummary[];
+  }> => {
     if (args.queryId) {
-      const rows = await ctx.runQuery(internal.findings.listByQueryInternal, {
+      return await ctx.runQuery(internal.findings.listByQueryInternal, {
         queryId: args.queryId as Id<"openQueries">,
       });
-      return rows.map((r) => ({
-        title: r.title,
-        url: r.url,
-        price: r.price,
-        currency: r.currency,
-        source: r.source,
-        summary: r.summary,
-        imageUrl: r.imageUrl,
-      }));
     }
     const active = await ctx.runQuery(internal.openQueries.listActive, {});
     const mine = active
       .filter((q: { sessionId: Id<"sessions"> }) => q.sessionId === ctx.sessionId)
       .slice(0, 5);
-    const out: Array<{
-      title: string;
-      url: string;
-      price: number | null;
-      currency: string | null;
-      source: string;
-      summary: string | null;
-      imageUrl: string | null;
-    }> = [];
+    const findings: FindingForAgent[] = [];
+    const rejected: RejectedSummary[] = [];
+    const seenRejected = new Set<string>();
     for (const q of mine) {
-      const rows = await ctx.runQuery(internal.findings.listByQueryInternal, {
+      const bundle = await ctx.runQuery(internal.findings.listByQueryInternal, {
         queryId: q._id,
       });
-      out.push(
-        ...rows.map((r) => ({
-          title: r.title,
-          url: r.url,
-          price: r.price,
-          currency: r.currency,
-          source: r.source,
-          summary: r.summary,
-          imageUrl: r.imageUrl,
-        })),
-      );
+      findings.push(...bundle.findings);
+      for (const row of bundle.rejected) {
+        const key = row.url.trim().toLowerCase();
+        if (seenRejected.has(key)) continue;
+        seenRejected.add(key);
+        rejected.push(row);
+      }
     }
-    return out.slice(0, 20);
+    return {
+      findings: findings.slice(0, 20),
+      rejected: rejected.slice(0, 20),
+    };
   },
 });
 
@@ -300,8 +290,8 @@ Your job:
 1. On the user's first request, ask clarifying questions ONCE (budget, style, constraints, brands, must-haves, etc.) — then stop asking.
 2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
 3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, create an open shopping query with createOpenQuery, then search.
-4. Prefer listFindings before re-searching the same brief. Search with searchProducts (Amazon, Etsy, or web) when you need fresh results; use scrapeProduct sparingly only for promising URLs missing price/image.
-5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown.
+4. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts (Amazon, Etsy, or web) when you need fresh results; use scrapeProduct sparingly only for promising URLs missing price/image.
+5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Users can accept (like) or reject (pass) cards in the UI; that feedback is silent — you learn it via listFindings.
 6. Offer email alerts for ongoing open queries via setEmailAlerts when the user wants follow-ups on sales or new products.
 
 Rules:
@@ -313,6 +303,7 @@ Rules:
 - Only recommend real product detail pages from tool results — never search, category, or marketplace browse pages.
 - Never dump numbered markdown product lists, markdown images, or Price/Summary/Rating bullet blocks — keep the reply to a few sentences of guidance.
 - Do not call searchProducts repeatedly for the same query unless the user asks for a fresh search or a different marketplace/angle.
+- When listFindings shows accepted picks, prefer similar products (style, brand, price band, use case). Treat rejected picks as hard negatives: never re-pitch those URLs, and avoid near-duplicates or the same disliked traits.
 - If a search fails or returns nothing, say so and suggest refining the brief.`,
   tools: {
     offerReplyChoices,

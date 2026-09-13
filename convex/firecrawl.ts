@@ -449,6 +449,11 @@ export const searchAndStore = internalAction({
         queryId: args.queryId,
       }),
     );
+    const rejectedKeys = new Set(
+      await ctx.runQuery(internal.findings.listRejectedUrlKeysForSession, {
+        sessionId: args.sessionId,
+      }),
+    );
 
     let stored = 0;
     let created = 0;
@@ -462,7 +467,7 @@ export const searchAndStore = internalAction({
       if (!url || !isProductPageUrl(url)) continue;
 
       const urlKey = normalizeUrlKey(url);
-      if (knownKeys.has(urlKey)) continue;
+      if (knownKeys.has(urlKey) || rejectedKeys.has(urlKey)) continue;
 
       const metadata =
         hit.metadata && typeof hit.metadata === "object"

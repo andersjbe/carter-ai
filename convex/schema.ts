@@ -73,10 +73,16 @@ export default defineSchema({
     fingerprint: v.string(),
     seenAt: v.number(),
     isNew: v.boolean(),
+    /** Soft-keep liked or hide-from-UI rejected; undefined = undecided. */
+    verdict: v.optional(
+      v.union(v.literal("accepted"), v.literal("rejected")),
+    ),
+    verdictAt: v.optional(v.number()),
   })
     .index("by_query", ["queryId"])
     .index("by_session", ["sessionId"])
-    .index("by_query_fingerprint", ["queryId", "fingerprint"]),
+    .index("by_query_fingerprint", ["queryId", "fingerprint"])
+    .index("by_session_and_verdict", ["sessionId", "verdict"]),
 
   alertPrefs: defineTable({
     sessionId: v.id("sessions"),

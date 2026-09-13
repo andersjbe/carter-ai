@@ -2,7 +2,7 @@
 
 - **Project:** Carter
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy/web via Firecrawl, and emails new-find digests through AgentMail.
+- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy/web via Firecrawl, lets shoppers like or pass findings for later searches, and emails new-find digests through AgentMail.
 - **Live app:** not deployed
 - **Repo:** https://github.com/andersjbe/carter-ai
 - **Frontend:** Convex static hosting
@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-13T13:30:43Z
+- **Last updated:** 2026-09-13T13:55:53Z
 
 ## Log
 
@@ -42,3 +42,6 @@ Cut Firecrawl credit burn: search is metadata-only (no scrape-on-search), known 
 
 ### 2026-09-13 - 5233649
 Added tappable reply chips for Carter’s single clarifying turn via an `offerReplyChoices` agent tool, chat-action parsing, and ChatApp chip UI so users can multi-select answers without typing everything (`convex/carterAgent.ts`, `convex/chatActions.ts`, `src/pages/ChatApp.tsx`). Convex features: agent tools, actions.
+
+### 2026-09-13 - working tree
+Shipped like/pass verdicts on product findings: soft-keep likes stay highlighted, rejects hide from Findings and chat cards, session-rejected URLs are skipped on later Firecrawl searches, and `listFindings` plus agent instructions feed accepted/rejected picks into future turns (`convex/schema.ts`, `convex/findings.ts`, `convex/firecrawl.ts`, `convex/carterAgent.ts`, `src/pages/ChatApp.tsx`). Convex features: schema, indexes, mutations, queries, agent tools.

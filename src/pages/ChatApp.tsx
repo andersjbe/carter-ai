@@ -73,7 +73,47 @@ function IconPlus({ className }: { className?: string }) {
   );
 }
 
+function IconThumbsUp({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 10v12" />
+      <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+    </svg>
+  );
+}
+
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 type ProductCardData = {
+  _id?: Id<"findings">;
   title: string;
   url: string;
   price: number | null;
@@ -82,6 +122,7 @@ type ProductCardData = {
   summary: string | null;
   imageUrl: string | null;
   isNew?: boolean;
+  verdict?: "accepted" | "rejected" | null;
 };
 
 type ReplyQuestion = {
@@ -148,6 +189,11 @@ function productsFromToolOutput(output: unknown): ProductCardData[] {
   }
   if (typeof output !== "object") return [];
   const record = output as Record<string, unknown>;
+  if (Array.isArray(record.findings)) {
+    return record.findings
+      .map(asProductCard)
+      .filter((item): item is ProductCardData => item != null);
+  }
   if (Array.isArray(record.results)) {
     return record.results
       .map(asProductCard)
@@ -160,6 +206,7 @@ function productsFromToolOutput(output: unknown): ProductCardData[] {
 function extractProductsFromMessage(
   message: UIMessage,
   findingsByUrl: Map<string, ProductCardData>,
+  rejectedUrls: Set<string>,
 ): ProductCardData[] {
   if (message.role !== "assistant" || !Array.isArray(message.parts)) {
     return [];
@@ -182,20 +229,26 @@ function extractProductsFromMessage(
     const output = part.output ?? part.result;
     for (const product of productsFromToolOutput(output)) {
       const key = normalizeUrlKey(product.url);
+      if (rejectedUrls.has(key)) continue;
       const fromFinding = findingsByUrl.get(key);
+      if (fromFinding?.verdict === "rejected") continue;
       byUrl.set(key, {
         ...product,
+        _id: fromFinding?._id ?? product._id,
         price: product.price ?? fromFinding?.price ?? null,
         currency: product.currency ?? fromFinding?.currency ?? null,
         source: product.source ?? fromFinding?.source ?? null,
         summary: product.summary ?? fromFinding?.summary ?? null,
         imageUrl: product.imageUrl ?? fromFinding?.imageUrl ?? null,
         isNew: fromFinding?.isNew,
+        verdict: fromFinding?.verdict ?? product.verdict ?? null,
       });
     }
   }
 
-  return Array.from(byUrl.values());
+  return Array.from(byUrl.values()).filter(
+    (product) => product.verdict !== "rejected",
+  );
 }
 
 function asReplyQuestion(value: unknown): ReplyQuestion | null {
@@ -277,10 +330,24 @@ function buildDraftFromReplySelections(
     .join("\n");
 }
 
-function ProductCard({ product }: { product: ProductCardData }) {
+function ProductCard({
+  product,
+  onSetVerdict,
+}: {
+  product: ProductCardData;
+  onSetVerdict?: (
+    findingId: Id<"findings">,
+    verdict: "accepted" | "rejected" | null,
+  ) => void;
+}) {
   const priceLabel = formatPrice(product.price, product.currency);
+  const isAccepted = product.verdict === "accepted";
+  const canJudge = Boolean(product._id && onSetVerdict);
+
   return (
-    <article className="product-card">
+    <article
+      className={`product-card${isAccepted ? " is-accepted" : ""}`}
+    >
       <a
         className="product-card-media"
         href={product.url}
@@ -302,6 +369,7 @@ function ProductCard({ product }: { product: ProductCardData }) {
             <span className="product-source">{product.source}</span>
           ) : null}
           {product.isNew ? <span className="badge">New</span> : null}
+          {isAccepted ? <span className="badge badge-liked">Liked</span> : null}
         </div>
         <strong>
           <a href={product.url} target="_blank" rel="noreferrer">
@@ -311,6 +379,33 @@ function ProductCard({ product }: { product: ProductCardData }) {
         {priceLabel ? <p className="product-price">{priceLabel}</p> : null}
         {product.summary ? (
           <p className="product-summary">{product.summary}</p>
+        ) : null}
+        {canJudge && product._id && onSetVerdict ? (
+          <div className="product-verdict" role="group" aria-label="Rate product">
+            <button
+              type="button"
+              className={`product-verdict-btn${isAccepted ? " is-selected" : ""}`}
+              aria-label={isAccepted ? "Unlike" : "Like"}
+              aria-pressed={isAccepted}
+              title={isAccepted ? "Unlike" : "Like"}
+              onClick={() =>
+                onSetVerdict(product._id!, isAccepted ? null : "accepted")
+              }
+            >
+              <IconThumbsUp />
+            </button>
+            {!isAccepted ? (
+              <button
+                type="button"
+                className="product-verdict-btn product-verdict-btn-reject"
+                aria-label="Reject"
+                title="Reject"
+                onClick={() => onSetVerdict(product._id!, "rejected")}
+              >
+                <IconX />
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </article>
@@ -379,23 +474,30 @@ function ReplyChoices({
 function MessageBubble({
   message,
   findingsByUrl,
+  rejectedUrls,
   replyInteractive,
   replySelections,
   onToggleReply,
+  onSetVerdict,
 }: {
   message: UIMessage;
   findingsByUrl: Map<string, ProductCardData>;
+  rejectedUrls: Set<string>;
   replyInteractive: boolean;
   replySelections: Record<string, ReplySelection>;
   onToggleReply: (question: ReplyQuestion, option: string | null) => void;
+  onSetVerdict: (
+    findingId: Id<"findings">,
+    verdict: "accepted" | "rejected" | null,
+  ) => void;
 }) {
   const [text] = useSmoothText(message.text ?? "", {
     startStreaming: message.status === "streaming",
   });
   const role = message.role === "user" ? "user" : "assistant";
   const products = useMemo(
-    () => extractProductsFromMessage(message, findingsByUrl),
-    [message, findingsByUrl],
+    () => extractProductsFromMessage(message, findingsByUrl, rejectedUrls),
+    [message, findingsByUrl, rejectedUrls],
   );
   const replyChoices = useMemo(
     () => (replyInteractive ? extractReplyChoicesFromMessage(message) : []),
@@ -411,7 +513,11 @@ function MessageBubble({
       {products.length > 0 ? (
         <div className="product-grid" aria-label="Product recommendations">
           {products.map((product) => (
-            <ProductCard key={product.url} product={product} />
+            <ProductCard
+              key={product.url}
+              product={product}
+              onSetVerdict={onSetVerdict}
+            />
           ))}
         </div>
       ) : null}
@@ -628,6 +734,10 @@ export default function ChatApp() {
     api.findings.listForSession,
     sessionId ? { sessionId } : "skip",
   );
+  const rejectedUrlList = useQuery(
+    api.findings.listRejectedUrlsForSession,
+    sessionId ? { sessionId } : "skip",
+  );
   const alertPrefs = useQuery(
     api.mail.getPrefs,
     sessionId ? { sessionId } : "skip",
@@ -674,6 +784,7 @@ export default function ChatApp() {
     const map = new Map<string, ProductCardData>();
     for (const finding of findings ?? []) {
       map.set(normalizeUrlKey(finding.url), {
+        _id: finding._id,
         title: finding.title,
         url: finding.url,
         price: finding.price,
@@ -682,10 +793,19 @@ export default function ChatApp() {
         summary: finding.summary,
         imageUrl: finding.imageUrl,
         isNew: finding.isNew,
+        verdict: finding.verdict,
       });
     }
     return map;
   }, [findings]);
+
+  const rejectedUrls = useMemo(() => {
+    const set = new Set<string>();
+    for (const url of rejectedUrlList ?? []) {
+      set.add(normalizeUrlKey(url));
+    }
+    return set;
+  }, [rejectedUrlList]);
 
   const sendMessage = useMutation(api.chat.sendMessage).withOptimisticUpdate(
     (store, args) => {
@@ -696,6 +816,18 @@ export default function ChatApp() {
     },
   );
   const setAlerts = useMutation(api.mail.setAlerts);
+  const setVerdict = useMutation(api.findings.setVerdict);
+
+  async function onSetVerdict(
+    findingId: Id<"findings">,
+    verdict: "accepted" | "rejected" | null,
+  ) {
+    try {
+      await setVerdict({ findingId, verdict });
+    } catch (error) {
+      console.error("Failed to set finding verdict", error);
+    }
+  }
 
   function onToggleReply(question: ReplyQuestion, option: string | null) {
     const previous = replySelections[question.id];
@@ -932,11 +1064,13 @@ export default function ChatApp() {
                     key={message.key}
                     message={message}
                     findingsByUrl={findingsByUrl}
+                    rejectedUrls={rejectedUrls}
                     replyInteractive={
                       message.key === interactiveReplyMessageKey
                     }
                     replySelections={replySelections}
                     onToggleReply={onToggleReply}
+                    onSetVerdict={onSetVerdict}
                   />
                 ))
               )}
@@ -1085,7 +1219,9 @@ export default function ChatApp() {
                 >
                   <section className="side-panel context-section">
                     <h3>Findings</h3>
-                    <p className="hint">Products pulled in through Firecrawl.</p>
+                    <p className="hint">
+                      Products Carter found. Like to keep, Pass to hide.
+                    </p>
                     <div className="finding-list">
                       {(findings ?? []).length === 0 ? (
                         <p className="empty">Nothing found yet.</p>
@@ -1094,6 +1230,7 @@ export default function ChatApp() {
                           <ProductCard
                             key={finding._id}
                             product={{
+                              _id: finding._id,
                               title: finding.title,
                               url: finding.url,
                               price: finding.price,
@@ -1102,7 +1239,9 @@ export default function ChatApp() {
                               summary: finding.summary,
                               imageUrl: finding.imageUrl,
                               isNew: finding.isNew,
+                              verdict: finding.verdict,
                             }}
+                            onSetVerdict={onSetVerdict}
                           />
                         ))
                       )}
