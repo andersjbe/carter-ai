@@ -837,6 +837,14 @@ a.app-topbar-brand:hover {
   animation: rise 0.85s ease both;
 }
 
+.context-sheet-header {
+  display: none;
+}
+
+.context-backdrop {
+  display: none;
+}
+
 .context-stack {
   flex: 1;
   min-height: 0;
@@ -889,7 +897,7 @@ a.app-topbar-brand:hover {
 
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(11rem, 34%);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .workspace--context-collapsed .layout {
@@ -932,7 +940,8 @@ a.app-topbar-brand:hover {
     padding: 0;
   }
 
-  .threads-backdrop {
+  .threads-backdrop,
+  .context-backdrop {
     display: block;
     position: fixed;
     inset: 0;
@@ -955,6 +964,38 @@ a.app-topbar-brand:hover {
     min-height: 0;
     max-height: none;
     animation: rise 0.25s ease both;
+  }
+
+  .context-panel--sheet {
+    position: fixed;
+    z-index: 40;
+    top: 3.4rem;
+    left: 0.65rem;
+    right: 0.65rem;
+    bottom: 0.65rem;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    animation: rise 0.25s ease both;
+  }
+
+  .context-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding: 0.75rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .context-sheet-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
   }
 
   .chat-panel,

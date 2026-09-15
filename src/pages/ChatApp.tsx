@@ -19,11 +19,20 @@ import {
   IconPlus,
   IconSearch,
   IconSidebar,
+  IconX,
 } from "../components/icons";
 
 const CONTEXT_PANEL_KEY = "carter.contextPanelOpen";
+const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const DEFAULT_COMPOSER_PLACEHOLDER =
   "Tell Carter what you’re shopping for…";
+
+function isMobileViewport() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(MOBILE_LAYOUT_QUERY).matches
+  );
+}
 
 type ReplyQuestion = {
   id: string;
@@ -570,7 +579,10 @@ export default function ChatApp() {
     threadId: string;
   } | null>(null);
   const [threadsOpen, setThreadsOpen] = useState(readThreadsSidebarOpen);
-  const [contextOpen, setContextOpen] = useState(readContextPanelOpen);
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
+  const [contextOpen, setContextOpen] = useState(() =>
+    isMobileViewport() ? false : readContextPanelOpen(),
+  );
   const [knowsExpanded, setKnowsExpanded] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
   const [draft, setDraft] = useState("");
@@ -642,12 +654,50 @@ export default function ChatApp() {
   }
 
   function toggleContextPanel() {
-    setContextOpen((open) => {
-      const next = !open;
+    const next = !contextOpen;
+    if (isMobileViewport()) {
+      if (next && threadsOpen) {
+        setThreadsOpen(false);
+        storeThreadsSidebarOpen(false);
+      }
+    } else {
       storeContextPanelOpen(next);
-      return next;
-    });
+    }
+    setContextOpen(next);
   }
+
+  function closeContextPanel() {
+    setContextOpen(false);
+    if (!isMobileViewport()) {
+      storeContextPanelOpen(false);
+    }
+  }
+
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    function onViewportChange() {
+      const mobile = media.matches;
+      setIsMobile(mobile);
+      if (mobile) {
+        setContextOpen(false);
+      } else {
+        setContextOpen(readContextPanelOpen());
+      }
+    }
+    media.addEventListener("change", onViewportChange);
+    return () => media.removeEventListener("change", onViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (!contextOpen || !isMobile) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setContextOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [contextOpen, isMobile]);
 
   function openSidebarForSearch() {
     if (!threadsOpen) {
@@ -796,6 +846,10 @@ export default function ChatApp() {
       `[data-message-key="${CSS.escape(messageKey)}"]`,
     );
     if (!(target instanceof HTMLElement)) return;
+
+    if (isMobileViewport()) {
+      setContextOpen(false);
+    }
 
     stickToBottomRef.current = false;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -954,10 +1008,154 @@ export default function ChatApp() {
     profile?.summary?.trim() ||
     "Preferences appear here as Carter learns your taste.";
 
+  const contextPanel =
+    contextOpen ? (
+      <aside
+        id="context-panel"
+        className={`panel context-panel${isMobile ? " context-panel--sheet" : ""}`}
+        aria-label="Shopping context"
+        role={isMobile ? "dialog" : undefined}
+        aria-modal={isMobile ? true : undefined}
+      >
+        <div className="context-sheet-header">
+          <h2 className="context-sheet-title">Shopping context</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={closeContextPanel}
+            aria-label="Close context"
+          >
+            <IconX />
+          </button>
+        </div>
+        <div className="context-stack">
+          <section className="side-panel context-section">
+            <h3>What Carter knows</h3>
+            <div className="chips">
+              {prefChips.length === 0 ? (
+                <span className="empty">No preferences yet</span>
+              ) : (
+                prefChips.map((chip) => (
+                  <span className="chip" key={chip.key}>
+                    {chip.label}
+                  </span>
+                ))
+              )}
+            </div>
+            {profile?.summary ? (
+              <div className="knows-summary">
+                <button
+                  type="button"
+                  className="knows-summary-toggle"
+                  aria-expanded={knowsExpanded}
+                  onClick={() => setKnowsExpanded((open) => !open)}
+                >
+                  {knowsExpanded ? "Hide details" : "Show details"}
+                </button>
+                {knowsExpanded ? (
+                  <p className="hint knows-summary-text">{knowsSummary}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="hint knows-summary-text">{knowsSummary}</p>
+            )}
+          </section>
+
+          <section className="side-panel context-section">
+            <h3>Open queries</h3>
+            <p className="hint">
+              Live shopping briefs Carter is watching. Click a card to jump
+              there in chat.
+            </p>
+            <div className="query-list">
+              {(openQueries ?? []).length === 0 ? (
+                <p className="empty">No open queries yet.</p>
+              ) : (
+                (openQueries ?? []).map((query) => {
+                  const messageKey = resolveQueryMessageKey(
+                    query,
+                    queryMessageAnchors,
+                  );
+                  const content = (
+                    <>
+                      <strong>{query.title}</strong>
+                      <p>{query.brief}</p>
+                      <div className="query-card-footer">
+                        <span className="badge">{query.status}</span>
+                        {messageKey ? (
+                          <span className="query-jump-label">
+                            View in chat
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  );
+
+                  if (!messageKey) {
+                    return (
+                      <div className="query-card" key={query._id}>
+                        {content}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <button
+                      type="button"
+                      className="query-card query-card--jump"
+                      key={query._id}
+                      onClick={() => jumpToMessage(messageKey)}
+                    >
+                      {content}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          <section className="side-panel context-section">
+            <h3>Findings</h3>
+            <p className="hint">
+              Products Carter found. Like to keep, Pass to hide, or add to a
+              shopping list when you intend to buy.
+            </p>
+            <div className="finding-list">
+              {(findings ?? []).length === 0 ? (
+                <p className="empty">Nothing found yet.</p>
+              ) : (
+                (findings ?? []).map((finding) => (
+                  <ProductCard
+                    key={finding._id}
+                    variant="chat"
+                    product={{
+                      _id: finding._id,
+                      title: finding.title,
+                      url: finding.url,
+                      price: finding.price,
+                      currency: finding.currency,
+                      source: finding.source,
+                      summary: finding.summary,
+                      imageUrl: finding.imageUrl,
+                      isNew: finding.isNew,
+                      verdict: finding.verdict,
+                    }}
+                    onSetVerdict={onSetVerdict}
+                    shoppingLists={shoppingLists ?? undefined}
+                    onAddToList={onAddToList}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      </aside>
+    ) : null;
+
   return (
     <AppShell variant="chat">
       <div
-        className={`workspace${threadsOpen ? " workspace--threads" : " workspace--rail"}${contextOpen ? " workspace--context" : " workspace--context-collapsed"}`}
+        className={`workspace${threadsOpen ? " workspace--threads" : " workspace--rail"}${contextOpen && !isMobile ? " workspace--context" : " workspace--context-collapsed"}`}
       >
         {threadsOpen ? (
           <button
@@ -1085,9 +1283,23 @@ export default function ChatApp() {
                 aria-pressed={contextOpen}
                 aria-controls="context-panel"
                 aria-label={
-                  contextOpen ? "Hide context panel" : "Show context panel"
+                  isMobile
+                    ? contextOpen
+                      ? "Close context"
+                      : "Open context"
+                    : contextOpen
+                      ? "Hide context panel"
+                      : "Show context panel"
                 }
-                title={contextOpen ? "Hide context" : "Show context"}
+                title={
+                  isMobile
+                    ? contextOpen
+                      ? "Close context"
+                      : "Open context"
+                    : contextOpen
+                      ? "Hide context"
+                      : "Show context"
+                }
               >
                 <IconPanel />
               </button>
@@ -1147,138 +1359,18 @@ export default function ChatApp() {
             </form>
           </section>
 
-          {contextOpen ? (
-            <aside
-              id="context-panel"
-              className="panel context-panel"
-              aria-label="Shopping context"
-            >
-              <div className="context-stack">
-                <section className="side-panel context-section">
-                  <h3>What Carter knows</h3>
-                  <div className="chips">
-                    {prefChips.length === 0 ? (
-                      <span className="empty">No preferences yet</span>
-                    ) : (
-                      prefChips.map((chip) => (
-                        <span className="chip" key={chip.key}>
-                          {chip.label}
-                        </span>
-                      ))
-                    )}
-                  </div>
-                  {profile?.summary ? (
-                    <div className="knows-summary">
-                      <button
-                        type="button"
-                        className="knows-summary-toggle"
-                        aria-expanded={knowsExpanded}
-                        onClick={() => setKnowsExpanded((open) => !open)}
-                      >
-                        {knowsExpanded ? "Hide details" : "Show details"}
-                      </button>
-                      {knowsExpanded ? (
-                        <p className="hint knows-summary-text">
-                          {knowsSummary}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="hint knows-summary-text">{knowsSummary}</p>
-                  )}
-                </section>
-
-                <section className="side-panel context-section">
-                  <h3>Open queries</h3>
-                  <p className="hint">
-                    Live shopping briefs Carter is watching. Click a card to
-                    jump there in chat.
-                  </p>
-                  <div className="query-list">
-                    {(openQueries ?? []).length === 0 ? (
-                      <p className="empty">No open queries yet.</p>
-                    ) : (
-                      (openQueries ?? []).map((query) => {
-                        const messageKey = resolveQueryMessageKey(
-                          query,
-                          queryMessageAnchors,
-                        );
-                        const content = (
-                          <>
-                            <strong>{query.title}</strong>
-                            <p>{query.brief}</p>
-                            <div className="query-card-footer">
-                              <span className="badge">{query.status}</span>
-                              {messageKey ? (
-                                <span className="query-jump-label">
-                                  View in chat
-                                </span>
-                              ) : null}
-                            </div>
-                          </>
-                        );
-
-                        if (!messageKey) {
-                          return (
-                            <div className="query-card" key={query._id}>
-                              {content}
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <button
-                            type="button"
-                            className="query-card query-card--jump"
-                            key={query._id}
-                            onClick={() => jumpToMessage(messageKey)}
-                          >
-                            {content}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </section>
-
-                <section className="side-panel context-section">
-                  <h3>Findings</h3>
-                  <p className="hint">
-                    Products Carter found. Like to keep, Pass to hide, or add to
-                    a shopping list when you intend to buy.
-                  </p>
-                  <div className="finding-list">
-                    {(findings ?? []).length === 0 ? (
-                      <p className="empty">Nothing found yet.</p>
-                    ) : (
-                      (findings ?? []).map((finding) => (
-                        <ProductCard
-                          key={finding._id}
-                          variant="chat"
-                          product={{
-                            _id: finding._id,
-                            title: finding.title,
-                            url: finding.url,
-                            price: finding.price,
-                            currency: finding.currency,
-                            source: finding.source,
-                            summary: finding.summary,
-                            imageUrl: finding.imageUrl,
-                            isNew: finding.isNew,
-                            verdict: finding.verdict,
-                          }}
-                          onSetVerdict={onSetVerdict}
-                          shoppingLists={shoppingLists ?? undefined}
-                          onAddToList={onAddToList}
-                        />
-                      ))
-                    )}
-                  </div>
-                </section>
-              </div>
-            </aside>
-          ) : null}
+          {!isMobile ? contextPanel : null}
         </div>
+
+        {isMobile && contextOpen ? (
+          <button
+            type="button"
+            className="context-backdrop"
+            aria-label="Close context"
+            onClick={closeContextPanel}
+          />
+        ) : null}
+        {isMobile ? contextPanel : null}
       </div>
     </AppShell>
   );
