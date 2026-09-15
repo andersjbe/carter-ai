@@ -487,18 +487,24 @@ function MessageBubble({
         {text || (message.status === "streaming" ? "…" : "")}
       </div>
       {products.length > 0 ? (
-        <div className="product-grid" aria-label="Product recommendations">
-          {products.map((product) => (
-            <ProductCard
-              key={product.url}
-              variant="chat"
-              product={product}
-              onSetVerdict={onSetVerdict}
-              shoppingLists={shoppingLists}
-              onAddToList={onAddToList}
-            />
-          ))}
-        </div>
+        <>
+          <div className="product-grid" aria-label="Product recommendations">
+            {products.map((product) => (
+              <ProductCard
+                key={product.url}
+                variant="chat"
+                product={product}
+                onSetVerdict={onSetVerdict}
+                shoppingLists={shoppingLists}
+                onAddToList={onAddToList}
+              />
+            ))}
+          </div>
+          <p className="product-learning-note" role="note">
+            Like or pass these picks — Carter learns your taste for the next
+            hunt.
+          </p>
+        </>
       ) : null}
       {replyChoices.length > 0 ? (
         <ReplyChoices

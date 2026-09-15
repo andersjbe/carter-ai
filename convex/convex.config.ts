@@ -15,6 +15,9 @@ const app = defineApp({
     // Required for Google sign-in — set via `npx convex env set GOOGLE_CLIENT_*`
     GOOGLE_CLIENT_ID: v.optional(v.string()),
     GOOGLE_CLIENT_SECRET: v.optional(v.string()),
+    // Auth + digest mail via AgentMail HTTP (createInbox bypass) and component send
+    AGENTMAIL_API_KEY: v.string(),
+    AGENTMAIL_BASE_URL: v.optional(v.string()),
   },
 });
 

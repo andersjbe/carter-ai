@@ -1435,6 +1435,17 @@ a.app-topbar-brand:hover {
   margin-top: 0.85rem;
 }
 
+.product-learning-note {
+  margin: 0.65rem 0 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .message .reply-choices {
   margin-top: 0.85rem;
   display: grid;
@@ -2680,7 +2691,7 @@ html[data-theme="dark"] .landing-preview-thumb--b {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.75rem 2rem;
 }
 

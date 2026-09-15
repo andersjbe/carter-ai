@@ -17,6 +17,8 @@ export default function LoginPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
 
   if (!isPending && session) {
     return <Navigate to="/app" replace />;
@@ -25,6 +27,7 @@ export default function LoginPage() {
   async function onGoogleSignIn() {
     setError(null);
     setInfo(null);
+    setNeedsVerification(false);
     setGoogleBusy(true);
     try {
       const result = await authClient.signIn.social({
@@ -46,6 +49,7 @@ export default function LoginPage() {
     event.preventDefault();
     setError(null);
     setInfo(null);
+    setNeedsVerification(false);
     setBusy(true);
     try {
       if (mode === "signup") {
@@ -59,6 +63,7 @@ export default function LoginPage() {
           setError(result.error.message ?? "Could not create account");
           return;
         }
+        setNeedsVerification(true);
         setInfo(
           "Check your email for a verification link, then sign in. Google sign-in skips this step.",
         );
@@ -74,7 +79,10 @@ export default function LoginPage() {
       if (result.error) {
         const message = result.error.message ?? "Could not sign in";
         if (result.error.status === 403) {
-          setError("Verify your email before signing in. Check your inbox for the link.");
+          setNeedsVerification(true);
+          setError(
+            "Verify your email before signing in. Check your inbox for the link.",
+          );
         } else {
           setError(message);
         }
@@ -88,7 +96,33 @@ export default function LoginPage() {
     }
   }
 
-  const anyBusy = busy || googleBusy;
+  async function onResendVerification() {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError("Enter your email first, then resend the verification link.");
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setResendBusy(true);
+    try {
+      const result = await authClient.sendVerificationEmail({
+        email: trimmed,
+        callbackURL: `${window.location.origin}/app`,
+      });
+      if (result.error) {
+        setError(result.error.message ?? "Could not resend verification email");
+        return;
+      }
+      setInfo("Verification email sent. Check your inbox (and spam).");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setResendBusy(false);
+    }
+  }
+
+  const anyBusy = busy || googleBusy || resendBusy;
 
   return (
     <div className="auth-page">
@@ -165,6 +199,16 @@ export default function LoginPage() {
           ) : null}
           {error ? <p className="auth-error">{error}</p> : null}
           {info ? <p className="auth-info">{info}</p> : null}
+          {needsVerification ? (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={anyBusy || !email.trim()}
+              onClick={() => void onResendVerification()}
+            >
+              {resendBusy ? "Sending…" : "Resend verification email"}
+            </button>
+          ) : null}
           <button className="btn btn-primary" type="submit" disabled={anyBusy}>
             {busy
               ? mode === "signup"

@@ -1,13 +1,18 @@
 import { Link, Navigate } from "react-router-dom";
 import { authClient } from "../lib/auth-client";
 import ThemeToggle from "../components/ThemeToggle";
-import { IconBell, IconList, IconSearch } from "../components/icons";
+import { IconBell, IconList, IconSearch, IconSites } from "../components/icons";
 
 const FEATURES = [
   {
     icon: IconSearch,
     title: "Ask once, then scout",
-    body: "Carter learns your budget, style, and must-haves — then searches Amazon, Etsy, and the web.",
+    body: "Carter learns your budget, style, and must-haves — then searches where you want it to look.",
+  },
+  {
+    icon: IconSites,
+    title: "Choose your sites",
+    body: "Toggle Amazon, Etsy, and the open web, or add stores you trust — set defaults in Profile, or per query while you shop.",
   },
   {
     icon: IconList,
@@ -46,8 +51,8 @@ export default function LandingPage() {
           <div className="landing-hero-copy">
             <h1 className="landing-brand">Carter</h1>
             <p className="landing-lede">
-              A curious product scout that learns what you want before searching
-              Amazon, Etsy, and the web — then watches for new finds.
+              A curious product scout that learns what you want, searches the
+              sites you choose, and watches for new finds.
             </p>
             <div className="landing-actions">
               <Link className="btn btn-primary" to="/login">
@@ -89,7 +94,7 @@ export default function LandingPage() {
 
         <section className="landing-features" aria-labelledby="landing-features-heading">
           <h2 id="landing-features-heading" className="landing-features-heading">
-            Built to find, save, and watch
+            Built to choose, find, save, and watch
           </h2>
           <ul className="landing-feature-list">
             {FEATURES.map((feature, index) => {

@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-15T21:16:00Z
+- **Last updated:** 2026-09-15T22:41:02Z
 
 ## Log
 
@@ -78,3 +78,9 @@ Committed the search-scope / Profile defaults work from the working tree (`conve
 
 ### 2026-09-15 - working tree
 Hardened Better Auth for production: Google OAuth on login (optional `GOOGLE_CLIENT_*` env), required email verification and password reset/forgot flows via AgentMail auth mail, and Profile account deletion that purges chats, lists, prefs, and agent threads before removing the Better Auth user (`convex/auth.ts`, `convex/accounts.ts`, `convex/mail.ts`, `src/pages/LoginPage.tsx`, `src/pages/ForgotPasswordPage.tsx`, `src/pages/ResetPasswordPage.tsx`, `src/pages/ProfilePage.tsx`, `.env.example`, `README.md`). Convex features: auth, mutations, actions, HTTP actions.
+
+### 2026-09-15 - 0fae199
+Committed the Better Auth production hardening from the working tree: Google OAuth, email verification, password reset/forgot, and account deletion with data purge (`convex/auth.ts`, `convex/accounts.ts`, `convex/mail.ts`, `src/pages/LoginPage.tsx`, `src/pages/ForgotPasswordPage.tsx`, `src/pages/ResetPasswordPage.tsx`, `src/pages/ProfilePage.tsx`). Convex features: auth, mutations, actions, HTTP actions.
+
+### 2026-09-15 - working tree
+Telegraphed like/pass learning under chat product grids, refreshed landing copy for per-site search, and fixed AgentMail auth/digest delivery by calling AgentMail’s HTTP API from parent actions (component create/send cannot see `AGENTMAIL_API_KEY`), plus a resend-verification control on login (`src/pages/ChatApp.tsx`, `src/index.css`, `src/pages/LandingPage.tsx`, `convex/mail.ts`, `convex/digests.ts`, `convex/auth.ts`, `convex/convex.config.ts`, `src/pages/LoginPage.tsx`). Convex features: actions, auth, typed env.

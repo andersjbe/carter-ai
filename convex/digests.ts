@@ -171,7 +171,7 @@ export const recheckShoppingListPrices = internalAction({
           })
           .join("\n\n");
 
-        await ctx.runMutation(internal.mail.sendDigest, {
+        await ctx.runAction(internal.mail.sendDigest, {
           listId: list.listId,
           inboxId,
           to: list.email,

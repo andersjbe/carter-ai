@@ -8,12 +8,97 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { components, internal } from "./_generated/api";
-import { AgentMail } from "@agentmail/convex";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { env } from "./_generated/server";
 import { requireAuthUserId, requireVerifiedAuthEmail } from "./lib/sessionAuth";
 
-const agentmail = new AgentMail(components.agentmail);
+const AGENTMAIL_DEFAULT_BASE = "https://api.agentmail.to/v0";
+
+/**
+ * Call AgentMail's HTTP API from the *parent* app.
+ *
+ * Convex components are isolated from app env vars, so `@agentmail/convex`'s
+ * internal createInbox / performSend cannot see AGENTMAIL_API_KEY. Auth and
+ * digest mail therefore use this helper from parent actions instead.
+ */
+async function agentMailFetch(
+  path: string,
+  init: { method: string; body?: Record<string, unknown> },
+): Promise<unknown> {
+  const apiKey = env.AGENTMAIL_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "AGENTMAIL_API_KEY is not set on the Convex deployment. Run `npx convex env set AGENTMAIL_API_KEY <key>`.",
+    );
+  }
+  const baseUrl = (env.AGENTMAIL_BASE_URL ?? AGENTMAIL_DEFAULT_BASE).replace(
+    /\/$/,
+    "",
+  );
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: init.method,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `AgentMail ${init.method} ${path} failed (${response.status}): ${text.slice(0, 500)}`,
+    );
+  }
+  if (response.status === 204) return null;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return null;
+  return await response.json();
+}
+
+async function createAgentMailInbox(args: {
+  displayName: string;
+  username?: string;
+}): Promise<string> {
+  const body: Record<string, string> = {
+    display_name: args.displayName,
+  };
+  if (args.username) body.username = args.username;
+
+  const inbox = (await agentMailFetch("/inboxes", {
+    method: "POST",
+    body,
+  })) as {
+    inbox_id?: string;
+    id?: string;
+    inboxId?: string;
+  } | null;
+  const inboxId = String(
+    inbox?.inbox_id ?? inbox?.id ?? inbox?.inboxId ?? "",
+  ).trim();
+  if (!inboxId) {
+    throw new Error("AgentMail createInbox returned no inbox id");
+  }
+  return inboxId;
+}
+
+async function sendAgentMailMessage(args: {
+  inboxId: string;
+  to: string;
+  subject: string;
+  text: string;
+  labels?: string[];
+}): Promise<void> {
+  await agentMailFetch(`/inboxes/${args.inboxId}/messages/send`, {
+    method: "POST",
+    body: {
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+      labels: args.labels,
+    },
+  });
+}
 
 async function requireOwnedList(
   ctx: QueryCtx | MutationCtx,
@@ -176,11 +261,10 @@ export const getOrCreateAgentInbox = internalAction({
       return shared;
     }
 
-    const inbox = await agentmail.createInbox(ctx, {
-      username: `carter-${args.listId.slice(-8)}`,
+    const inboxId = await createAgentMailInbox({
       displayName: "Carter Product Scout",
+      username: `carter-${args.listId.slice(-8)}`,
     });
-    const inboxId = String(inbox.inbox_id ?? inbox.id ?? inbox.inboxId);
     await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
     await ctx.runMutation(internal.mail.saveInboxId, {
       listId: args.listId,
@@ -222,7 +306,7 @@ export const setSharedInbox = internalMutation({
   },
 });
 
-export const sendDigest = internalMutation({
+export const sendDigest = internalAction({
   args: {
     listId: v.id("shoppingLists"),
     inboxId: v.string(),
@@ -232,7 +316,8 @@ export const sendDigest = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await agentmail.sendMessage(ctx, args.inboxId, {
+    await sendAgentMailMessage({
+      inboxId: args.inboxId,
       to: args.to,
       subject: args.subject,
       text: args.text,
@@ -254,43 +339,32 @@ export const sendAuthEmail = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    let inboxId: string | null = await ctx.runQuery(
-      internal.mail.getSharedInbox,
-      {},
-    );
-    if (!inboxId) {
-      const inbox = await agentmail.createInbox(ctx, {
-        username: "carter-auth",
-        displayName: "Carter Auth",
+    try {
+      let inboxId: string | null = await ctx.runQuery(
+        internal.mail.getSharedInbox,
+        {},
+      );
+      if (!inboxId) {
+        inboxId = await createAgentMailInbox({
+          displayName: "Carter Auth",
+        });
+        await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
+      }
+      await sendAgentMailMessage({
+        inboxId,
+        to: args.to,
+        subject: args.subject,
+        text: args.text,
+        labels: ["carter-auth"],
       });
-      inboxId = String(inbox.inbox_id ?? inbox.id ?? inbox.inboxId);
-      await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
+      return null;
+    } catch (error) {
+      console.error("sendAuthEmail failed", {
+        to: args.to,
+        subject: args.subject,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-    await ctx.runMutation(internal.mail.deliverAuthEmail, {
-      inboxId,
-      to: args.to,
-      subject: args.subject,
-      text: args.text,
-    });
-    return null;
-  },
-});
-
-export const deliverAuthEmail = internalMutation({
-  args: {
-    inboxId: v.string(),
-    to: v.string(),
-    subject: v.string(),
-    text: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await agentmail.sendMessage(ctx, args.inboxId, {
-      to: args.to,
-      subject: args.subject,
-      text: args.text,
-      labels: ["carter-auth"],
-    });
-    return null;
   },
 });
