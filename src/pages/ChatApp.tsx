@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   optimisticallySendMessage,
@@ -16,11 +16,14 @@ import ProductCard, {
 } from "../components/ProductCard";
 import {
   IconPanel,
+  IconPencil,
   IconPlus,
   IconSearch,
   IconSidebar,
+  IconTrash,
   IconX,
 } from "../components/icons";
+import { MAX_SESSION_TITLE_LENGTH } from "../../convex/lib/sessionTitle";
 
 const CONTEXT_PANEL_KEY = "carter.contextPanelOpen";
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
@@ -568,6 +571,8 @@ export default function ChatApp() {
   const { data: authSession } = authClient.useSession();
   const ensureSession = useMutation(api.sessions.getOrCreate);
   const createSession = useMutation(api.sessions.create);
+  const removeSession = useMutation(api.sessions.remove);
+  const renameSession = useMutation(api.sessions.rename);
   const conversations = useQuery(
     api.sessions.list,
     authSession?.user?.id ? {} : "skip",
@@ -591,6 +596,18 @@ export default function ChatApp() {
   >({});
   const [sending, setSending] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] =
+    useState<Id<"sessions"> | null>(null);
+  const [confirmDeleteSessionId, setConfirmDeleteSessionId] =
+    useState<Id<"sessions"> | null>(null);
+  const confirmDeleteRef = useRef<HTMLLIElement | null>(null);
+  const [editingSessionId, setEditingSessionId] =
+    useState<Id<"sessions"> | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameBaselineRef = useRef("");
+  const skipRenameBlurRef = useRef(false);
   const [highlightedMessageKey, setHighlightedMessageKey] = useState<
     string | null
   >(null);
@@ -625,6 +642,7 @@ export default function ChatApp() {
   function selectConversation(
     nextSessionId: Id<"sessions">,
     nextThreadId: string,
+    options?: { preserveSidebar?: boolean },
   ) {
     setSessionId(nextSessionId);
     setThreadId(nextThreadId);
@@ -636,6 +654,7 @@ export default function ChatApp() {
     const userId = authSession?.user?.id;
     if (userId) storeActiveSessionId(userId, nextSessionId);
     if (
+      !options?.preserveSidebar &&
       threadsOpen &&
       typeof window !== "undefined" &&
       window.matchMedia("(max-width: 900px)").matches
@@ -716,6 +735,130 @@ export default function ChatApp() {
       setThreadSearch("");
     } finally {
       setCreatingChat(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!confirmDeleteSessionId) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!confirmDeleteRef.current?.contains(event.target as Node)) {
+        setConfirmDeleteSessionId(null);
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setConfirmDeleteSessionId(null);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [confirmDeleteSessionId]);
+
+  useEffect(() => {
+    if (!editingSessionId) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [editingSessionId]);
+
+  function startRename(
+    targetSessionId: Id<"sessions">,
+    currentTitle: string,
+  ) {
+    if (deletingSessionId || renaming) return;
+    setConfirmDeleteSessionId(null);
+    skipRenameBlurRef.current = false;
+    renameBaselineRef.current = currentTitle;
+    setTitleDraft(currentTitle);
+    setEditingSessionId(targetSessionId);
+    if (!threadsOpen) {
+      setThreadsOpen(true);
+      storeThreadsSidebarOpen(true);
+    }
+  }
+
+  function cancelRename() {
+    skipRenameBlurRef.current = true;
+    setEditingSessionId(null);
+    setTitleDraft("");
+    setRenaming(false);
+  }
+
+  async function commitRename() {
+    if (!editingSessionId || renaming) return;
+    const nextTitle = titleDraft.trim();
+    const baseline = renameBaselineRef.current;
+    if (!nextTitle || nextTitle === baseline) {
+      cancelRename();
+      return;
+    }
+
+    setRenaming(true);
+    try {
+      await renameSession({
+        sessionId: editingSessionId,
+        title: nextTitle,
+      });
+      cancelRename();
+    } catch {
+      skipRenameBlurRef.current = false;
+      setTitleDraft(baseline);
+      setRenaming(false);
+      queueMicrotask(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }
+
+  function onRenameKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void commitRename();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelRename();
+    }
+  }
+
+  async function onConfirmDeleteConversation(
+    targetSessionId: Id<"sessions">,
+  ) {
+    if (deletingSessionId) return;
+
+    const wasActive = targetSessionId === sessionId;
+    const remaining = (conversations ?? []).filter(
+      (row) => row.sessionId !== targetSessionId,
+    );
+
+    setConfirmDeleteSessionId(null);
+    setDeletingSessionId(targetSessionId);
+
+    try {
+      // Move off the doomed chat first so the main panel never flashes empty.
+      if (wasActive && remaining[0]) {
+        selectConversation(remaining[0].sessionId, remaining[0].threadId, {
+          preserveSidebar: true,
+        });
+      }
+
+      const next = await removeSession({ sessionId: targetSessionId });
+
+      if (wasActive) {
+        const alreadyOnNext =
+          remaining[0] && remaining[0].sessionId === next.sessionId;
+        if (!alreadyOnNext) {
+          selectConversation(next.sessionId, next.threadId, {
+            preserveSidebar: true,
+          });
+        }
+      }
+    } finally {
+      setDeletingSessionId(null);
     }
   }
 
@@ -1217,19 +1360,133 @@ export default function ChatApp() {
                 ) : (
                   filteredConversations.map((row) => {
                     const active = row.sessionId === sessionId;
+                    const deleting = deletingSessionId === row.sessionId;
+                    const confirming =
+                      confirmDeleteSessionId === row.sessionId;
+                    const editing = editingSessionId === row.sessionId;
                     return (
-                      <li key={row.sessionId}>
-                        <button
-                          type="button"
-                          className={`thread-item${active ? " is-active" : ""}`}
-                          onClick={() =>
-                            selectConversation(row.sessionId, row.threadId)
-                          }
-                          aria-current={active ? "true" : undefined}
-                          title={row.title}
-                        >
-                          <span className="thread-item-title">{row.title}</span>
-                        </button>
+                      <li
+                        key={row.sessionId}
+                        ref={confirming ? confirmDeleteRef : undefined}
+                        className={`thread-row${active ? " is-active" : ""}${confirming ? " is-confirming" : ""}${editing ? " is-editing" : ""}`}
+                      >
+                        {editing ? (
+                          <input
+                            ref={renameInputRef}
+                            className="thread-item-rename"
+                            value={titleDraft}
+                            maxLength={MAX_SESSION_TITLE_LENGTH}
+                            aria-label="Conversation name"
+                            disabled={renaming}
+                            onChange={(event) =>
+                              setTitleDraft(event.target.value)
+                            }
+                            onBlur={() => {
+                              if (skipRenameBlurRef.current) {
+                                skipRenameBlurRef.current = false;
+                                return;
+                              }
+                              if (!renaming) void commitRename();
+                            }}
+                            onKeyDown={onRenameKeyDown}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className={`thread-item${active ? " is-active" : ""}`}
+                              onClick={() =>
+                                selectConversation(row.sessionId, row.threadId)
+                              }
+                              onDoubleClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                startRename(row.sessionId, row.title);
+                              }}
+                              aria-current={active ? "true" : undefined}
+                              title={`${row.title} — double-click to rename`}
+                              disabled={deleting}
+                            >
+                              <span className="thread-item-title">
+                                {row.title}
+                              </span>
+                            </button>
+                            <div className="thread-item-actions">
+                              <button
+                                type="button"
+                                className="thread-item-action"
+                                aria-label={`Rename conversation: ${row.title}`}
+                                title="Rename"
+                                disabled={
+                                  deleting || deletingSessionId !== null
+                                }
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  startRename(row.sessionId, row.title);
+                                }}
+                              >
+                                <IconPencil />
+                              </button>
+                              <button
+                                type="button"
+                                className="thread-item-action thread-item-delete"
+                                aria-label={`Delete conversation: ${row.title}`}
+                                aria-expanded={confirming}
+                                aria-haspopup="dialog"
+                                title="Delete conversation"
+                                disabled={
+                                  deleting || deletingSessionId !== null
+                                }
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setConfirmDeleteSessionId((current) =>
+                                    current === row.sessionId
+                                      ? null
+                                      : row.sessionId,
+                                  );
+                                }}
+                              >
+                                <IconTrash />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                        {confirming ? (
+                          <div
+                            className="thread-delete-popover"
+                            role="dialog"
+                            aria-label="Confirm delete conversation"
+                          >
+                            <p className="thread-delete-popover-copy">
+                              Delete this conversation? This cannot be undone.
+                            </p>
+                            <div className="thread-delete-popover-actions">
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-compact"
+                                onClick={() => setConfirmDeleteSessionId(null)}
+                                disabled={deleting}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-compact thread-delete-confirm"
+                                onClick={() =>
+                                  void onConfirmDeleteConversation(
+                                    row.sessionId,
+                                  )
+                                }
+                                disabled={deleting}
+                              >
+                                {deleting ? "Deleting…" : "Delete"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })
@@ -1273,7 +1530,15 @@ export default function ChatApp() {
           <section className="panel chat-panel" aria-label="Chat with Carter">
             <div className="chat-header">
               <div className="chat-header-copy">
-                <h2 title={activeTitle}>{activeTitle}</h2>
+                <h2
+                  className="chat-header-title"
+                  title={`${activeTitle} — double-click to rename`}
+                  onDoubleClick={() => {
+                    if (sessionId) startRename(sessionId, activeTitle);
+                  }}
+                >
+                  {activeTitle}
+                </h2>
                 <p>Carter asks first, then hunts.</p>
               </div>
               <button

@@ -11,6 +11,7 @@ import { mutation, query } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import { requireOwnedSession } from "./lib/sessionAuth";
 import {
+  isDefaultSessionTitle,
   sessionIsEmpty,
   titleFromPrompt,
 } from "./lib/sessionTitle";
@@ -67,12 +68,14 @@ export const sendMessage = mutation({
     } = { updatedAt, isEmpty: false };
 
     if (sessionIsEmpty(session)) {
-      const title = titleFromPrompt(prompt);
-      patch.title = title;
-      await updateThreadMetadata(ctx, components.agent, {
-        threadId: args.threadId,
-        patch: { title },
-      });
+      if (isDefaultSessionTitle(session.title)) {
+        const title = titleFromPrompt(prompt);
+        patch.title = title;
+        await updateThreadMetadata(ctx, components.agent, {
+          threadId: args.threadId,
+          patch: { title },
+        });
+      }
     }
     await ctx.db.patch(args.sessionId, patch);
 

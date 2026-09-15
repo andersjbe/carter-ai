@@ -1,12 +1,17 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
-import { createThread } from "@convex-dev/agent";
+import { createThread, updateThreadMetadata } from "@convex-dev/agent";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { requireAuthUserId } from "./lib/sessionAuth";
+import { carterAgent } from "./carterAgent";
+import {
+  requireAuthUserId,
+  requireOwnedSession,
+} from "./lib/sessionAuth";
 import {
   DEFAULT_SESSION_TITLE,
+  MAX_SESSION_TITLE_LENGTH,
   sessionIsEmpty,
 } from "./lib/sessionTitle";
 
@@ -216,6 +221,107 @@ export const getMine = query({
 
     if (!latest) return null;
     return toSummary(latest);
+  },
+});
+
+/** Rename a conversation. Does not change empty/message state. */
+export const rename = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    title: v.string(),
+  },
+  returns: sessionSummary,
+  handler: async (ctx, args) => {
+    const session = await requireOwnedSession(ctx, args.sessionId);
+    if (typeof session.threadId !== "string" || session.threadId.length === 0) {
+      throw new Error("Conversation has no thread");
+    }
+
+    const title = args.title.trim().slice(0, MAX_SESSION_TITLE_LENGTH);
+    if (!title) {
+      throw new Error("Title is required");
+    }
+
+    const updatedAt = Date.now();
+    await ctx.db.patch(args.sessionId, { title, updatedAt });
+    await updateThreadMetadata(ctx, components.agent, {
+      threadId: session.threadId,
+      patch: { title },
+    });
+
+    return toSummary({
+      ...session,
+      threadId: session.threadId,
+      title,
+      updatedAt,
+    });
+  },
+});
+
+async function deleteSessionScopedRows(
+  ctx: MutationCtx,
+  sessionId: Id<"sessions">,
+) {
+  for (const table of ["findings", "openQueries", "profiles"] as const) {
+    while (true) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+        .take(100);
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+      }
+    }
+  }
+}
+
+/** Delete one conversation and its session-scoped data.
+ * Always leaves the user with a valid session (creates one if this was the last). */
+export const remove = mutation({
+  args: { sessionId: v.id("sessions") },
+  returns: sessionSummary,
+  handler: async (ctx, args) => {
+    const session = await requireOwnedSession(ctx, args.sessionId);
+    const userId = session.userId;
+
+    const existing = await ctx.db
+      .query("sessions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(100);
+    const others = existing
+      .filter(
+        (row): row is Doc<"sessions"> & { threadId: string } =>
+          row._id !== args.sessionId &&
+          typeof row.threadId === "string" &&
+          row.threadId.length > 0,
+      )
+      .sort((a, b) => sessionSortKey(b) - sessionSortKey(a));
+
+    // Create a replacement before deleting the last chat so the UI never
+    // briefly has zero sessions.
+    const replacement =
+      others.length === 0 ? await createEmptySession(ctx, userId) : null;
+
+    await deleteSessionScopedRows(ctx, args.sessionId);
+
+    if (typeof session.threadId === "string" && session.threadId.length > 0) {
+      await carterAgent.deleteThreadAsync(ctx, { threadId: session.threadId });
+    }
+
+    await ctx.db.delete(args.sessionId);
+
+    if (replacement) {
+      return {
+        sessionId: replacement.sessionId,
+        threadId: replacement.threadId,
+        title: replacement.title,
+        updatedAt: replacement.updatedAt,
+        isEmpty: replacement.isEmpty,
+        profileId: replacement.profileId,
+      };
+    }
+    return toSummary(others[0]!);
   },
 });
 

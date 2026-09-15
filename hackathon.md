@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-13T15:43:02Z
+- **Last updated:** 2026-09-15T12:55:38Z
 
 ## Log
 
@@ -57,3 +57,15 @@ Committed shopping lists, Lists page, and list-scoped digests/mail prefs (`conve
 
 ### 2026-09-13 - working tree
 Redesigned Chat and Lists around shared AppShell/topbar and ProductCard: image-led list items, click-to-edit titles, compact price alerts, warm dark theme instead of aubergine ambient, stacked Knows/Queries/Findings context, and open-query cards that jump to the matching user question in chat without snapping back to the bottom (`src/components/AppShell.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/index.css`).
+
+### 2026-09-13 - 0b9a9d7
+Committed the AppShell/ProductCard redesign, account menu, Lists title editing, and warmer theme tokens from the working tree (`src/components/AppShell.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/index.css`).
+
+### 2026-09-13 - 8f22e5d
+Polished responsive layout spacing and AppShell account label so chat and product cards hold up better on narrow screens (`src/components/AppShell.tsx`, `src/index.css`).
+
+### 2026-09-15 - aac4dbf
+Made the shopping context panel mobile-friendly with a sheet overlay, close control, and viewport-aware open/collapse behavior (`src/pages/ChatApp.tsx`, `src/index.css`).
+
+### 2026-09-15 - working tree
+Added conversation thread delete (cascade session data + agent thread cleanup, in-app confirm popover, seamless handoff to another chat) and inline rename (pencil/double-click, Enter/blur save) so custom titles survive the first message. Softened light-mode user bubbles to cream on ink (`convex/sessions.ts`, `convex/chat.ts`, `src/pages/ChatApp.tsx`, `src/index.css`). Convex features: mutations, agent thread delete/metadata.
