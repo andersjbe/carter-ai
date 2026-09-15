@@ -2,9 +2,14 @@ import { v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
+  mutation,
   query,
 } from "./_generated/server";
 import { requireOwnedSession } from "./lib/sessionAuth";
+import {
+  normalizeCustomDomains,
+  type MarketplaceSource,
+} from "./lib/searchScope";
 
 const sourceValidator = v.union(
   v.literal("amazon"),
@@ -27,6 +32,7 @@ export const listForSession = query({
       brief: v.string(),
       status: statusValidator,
       sources: v.union(v.array(sourceValidator), v.null()),
+      customDomains: v.union(v.array(v.string()), v.null()),
       lastCheckedAt: v.union(v.number(), v.null()),
     }),
   ),
@@ -42,8 +48,41 @@ export const listForSession = query({
       brief: row.brief,
       status: row.status,
       sources: row.sources ?? null,
+      customDomains: row.customDomains ?? null,
       lastCheckedAt: row.lastCheckedAt ?? null,
     }));
+  },
+});
+
+export const updateSearchScope = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    queryId: v.id("openQueries"),
+    sources: v.array(sourceValidator),
+    customDomains: v.array(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
+    const queryDoc = await ctx.db.get(args.queryId);
+    if (!queryDoc || queryDoc.sessionId !== args.sessionId) {
+      throw new Error("Unauthorized");
+    }
+
+    const customDomains = normalizeCustomDomains(args.customDomains);
+    const sources = dedupeSources(args.sources);
+
+    if (sources.length === 0 && customDomains.length === 0) {
+      throw new Error(
+        "Select at least one marketplace or add a custom domain",
+      );
+    }
+
+    await ctx.db.patch(args.queryId, {
+      sources,
+      customDomains: customDomains.length > 0 ? customDomains : undefined,
+    });
+    return null;
   },
 });
 
@@ -55,10 +94,14 @@ export const create = internalMutation({
     brief: v.string(),
     searchHints: v.optional(v.array(v.string())),
     sources: v.optional(v.array(sourceValidator)),
+    customDomains: v.optional(v.array(v.string())),
     status: v.optional(statusValidator),
   },
   returns: v.id("openQueries"),
   handler: async (ctx, args) => {
+    const customDomains = args.customDomains
+      ? normalizeCustomDomains(args.customDomains)
+      : undefined;
     return await ctx.db.insert("openQueries", {
       sessionId: args.sessionId,
       profileId: args.profileId,
@@ -66,6 +109,10 @@ export const create = internalMutation({
       brief: args.brief,
       searchHints: args.searchHints,
       sources: args.sources ?? ["amazon", "etsy", "web"],
+      customDomains:
+        customDomains && customDomains.length > 0
+          ? customDomains
+          : undefined,
       status: args.status ?? "active",
     });
   },
@@ -102,6 +149,7 @@ export const listActive = internalQuery({
       brief: v.string(),
       searchHints: v.union(v.array(v.string()), v.null()),
       sources: v.union(v.array(sourceValidator), v.null()),
+      customDomains: v.union(v.array(v.string()), v.null()),
       lastCheckedAt: v.union(v.number(), v.null()),
     }),
   ),
@@ -117,6 +165,7 @@ export const listActive = internalQuery({
       brief: row.brief,
       searchHints: row.searchHints ?? null,
       sources: row.sources ?? null,
+      customDomains: row.customDomains ?? null,
       lastCheckedAt: row.lastCheckedAt ?? null,
     }));
   },
@@ -132,6 +181,7 @@ export const getInternal = internalQuery({
       brief: v.string(),
       searchHints: v.union(v.array(v.string()), v.null()),
       sources: v.union(v.array(sourceValidator), v.null()),
+      customDomains: v.union(v.array(v.string()), v.null()),
       status: statusValidator,
     }),
     v.null(),
@@ -146,7 +196,14 @@ export const getInternal = internalQuery({
       brief: row.brief,
       searchHints: row.searchHints ?? null,
       sources: row.sources ?? null,
+      customDomains: row.customDomains ?? null,
       status: row.status,
     };
   },
 });
+
+function dedupeSources(sources: MarketplaceSource[]): MarketplaceSource[] {
+  const order: MarketplaceSource[] = ["amazon", "etsy", "web"];
+  const set = new Set(sources);
+  return order.filter((s) => set.has(s));
+}

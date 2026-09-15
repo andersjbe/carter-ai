@@ -8,6 +8,13 @@ import {
 import { convexGateway } from "@convex-dev/ai-sdk-provider";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import {
+  applySiteBias,
+  normalizeCustomDomains,
+  resolveSearchScope,
+  splitSearchLimit,
+  type MarketplaceSource,
+} from "./lib/searchScope";
 
 export type CarterCtx = ToolCtx & {
   sessionId: Id<"sessions">;
@@ -54,7 +61,7 @@ const updatePreferences = createTool({
 
 const createOpenQuery = createTool({
   description:
-    "Create an open shopping query / brief once you understand enough about what the user wants. Prefer doing this before searching.",
+    "Create an open shopping query / brief once you understand enough about what the user wants. Prefer doing this before searching. When the user does not specify sites, their Profile search defaults apply. They can change sites for this query later in the Open queries panel.",
   inputSchema: z.object({
     title: z.string().describe("Short title for the shopping brief"),
     brief: z
@@ -67,28 +74,60 @@ const createOpenQuery = createTool({
     sources: z
       .array(z.enum(["amazon", "etsy", "web"]))
       .optional()
-      .describe("Preferred marketplaces"),
+      .describe(
+        "Preferred marketplaces for this query only; omit to use Profile defaults",
+      ),
+    customDomains: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Extra hostnames for this query (e.g. wayfair.com); omit to use Profile defaults",
+      ),
   }),
   execute: async (ctx: CarterCtx, args): Promise<{ queryId: string }> => {
     const profile = await ctx.runQuery(internal.profiles.getInternal, {
       sessionId: ctx.sessionId,
     });
+    const defaults = await ctx.runQuery(
+      internal.userSearchPrefs.getForSessionInternal,
+      { sessionId: ctx.sessionId },
+    );
+
+    const sources =
+      args.sources ?? (defaults.sources as MarketplaceSource[]);
+    const customDomains = args.customDomains
+      ? normalizeCustomDomains(args.customDomains)
+      : defaults.customDomains.length > 0
+        ? defaults.customDomains
+        : undefined;
+
     const queryId = await ctx.runMutation(internal.openQueries.create, {
       sessionId: ctx.sessionId,
       profileId: profile?._id,
       title: args.title,
       brief: args.brief,
       searchHints: args.searchHints,
-      sources: args.sources,
+      sources,
+      customDomains,
       status: "active",
     });
     return { queryId };
   },
 });
 
+type SearchProductResult = {
+  title: string;
+  url: string;
+  source: string;
+  summary: string | null;
+  price: number | null;
+  currency: string | null;
+  imageUrl: string | null;
+};
+
 const searchProducts = createTool({
   description:
-    "Search ecommerce-oriented results (Amazon, Etsy, or the open web). Prefer listFindings first if you already searched this query — avoid repeat searches. Only call after creating an open query and gathering preferences.",
+    "Search ecommerce-oriented results using the open query's stored sources and custom domains. Prefer listFindings first if you already searched this query — avoid repeat searches. Only call after creating an open query and gathering preferences. Optional marketplace is a one-shot override for this call only; otherwise honor the query's saved scope and do not broaden unless the user asks.",
   inputSchema: z.object({
     queryId: z.string().describe("Open query id returned by createOpenQuery"),
     searchQuery: z
@@ -99,7 +138,9 @@ const searchProducts = createTool({
     marketplace: z
       .enum(["amazon", "etsy", "web"])
       .optional()
-      .describe("Bias the search toward a marketplace"),
+      .describe(
+        "One-shot override for this call only; omit to use the query's saved sources/domains",
+      ),
     limit: z.number().optional(),
   }),
   execute: async (
@@ -108,36 +149,57 @@ const searchProducts = createTool({
   ): Promise<{
     stored: number;
     created: number;
-    results: Array<{
-      title: string;
-      url: string;
-      source: string;
-      summary: string | null;
-      price: number | null;
-      currency: string | null;
-      imageUrl: string | null;
-    }>;
+    results: SearchProductResult[];
   }> => {
-    const includeDomains =
-      args.marketplace === "amazon"
-        ? ["amazon.com"]
-        : args.marketplace === "etsy"
-          ? ["etsy.com"]
-          : undefined;
-    const biasedQuery =
-      args.marketplace === "amazon"
-        ? `${args.searchQuery} site:amazon.com`
-        : args.marketplace === "etsy"
-          ? `${args.searchQuery} site:etsy.com`
-          : args.searchQuery;
-
-    return await ctx.runAction(internal.firecrawl.searchAndStore, {
-      sessionId: ctx.sessionId,
-      queryId: args.queryId as Id<"openQueries">,
-      searchQuery: biasedQuery,
-      includeDomains,
-      limit: args.limit,
+    const queryId = args.queryId as Id<"openQueries">;
+    const openQuery = await ctx.runQuery(internal.openQueries.getInternal, {
+      queryId,
     });
+    if (!openQuery || openQuery.sessionId !== ctx.sessionId) {
+      throw new Error("Open query not found");
+    }
+
+    let passes;
+    if (args.marketplace) {
+      passes = resolveSearchScope(
+        [args.marketplace as MarketplaceSource],
+        undefined,
+      );
+    } else {
+      passes = resolveSearchScope(
+        openQuery.sources as MarketplaceSource[] | null,
+        openQuery.customDomains,
+      );
+    }
+
+    const limits = splitSearchLimit(args.limit, passes.length);
+    let stored = 0;
+    let created = 0;
+    const results: SearchProductResult[] = [];
+    const seenUrls = new Set<string>();
+
+    for (let i = 0; i < passes.length; i++) {
+      const pass = passes[i]!;
+      const limit = limits[i] ?? 3;
+      const searchQuery = applySiteBias(args.searchQuery, pass.siteBias);
+      const batch = await ctx.runAction(internal.firecrawl.searchAndStore, {
+        sessionId: ctx.sessionId,
+        queryId,
+        searchQuery,
+        includeDomains: pass.includeDomains,
+        limit,
+      });
+      stored += batch.stored;
+      created += batch.created;
+      for (const row of batch.results) {
+        const key = row.url.trim().toLowerCase();
+        if (seenUrls.has(key)) continue;
+        seenUrls.add(key);
+        results.push(row);
+      }
+    }
+
+    return { stored, created, results };
   },
 });
 
@@ -270,8 +332,8 @@ export const carterAgent = new Agent<CarterCtx>(components.agent, {
 Your job:
 1. On the user's first request, ask clarifying questions ONCE (budget, style, constraints, brands, must-haves, etc.) — then stop asking.
 2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
-3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, create an open shopping query with createOpenQuery, then search.
-4. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts (Amazon, Etsy, or web) when you need fresh results; use scrapeProduct sparingly only for promising URLs missing price/image.
+3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, create an open shopping query with createOpenQuery (omit sources/customDomains unless the user asked for specific sites — Profile defaults apply), then search.
+4. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts when you need fresh results; it uses the open query's saved marketplaces and custom domains — honor those and do not broaden unless the user asks. Users can edit sites per query in the Open queries panel. Use scrapeProduct sparingly only for promising URLs missing price/image.
 5. After tools return products, write a short conversational take: which picks fit and why. The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Users can like or pass cards in the UI (preference signal via listFindings) and separately add products to shopping lists when they intend to buy.
 6. If the user asks about price-drop email alerts, tell them to open Lists from the top nav, pick a shopping list, and enable alerts there — you cannot toggle alerts from chat.
 

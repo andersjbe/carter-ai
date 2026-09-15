@@ -35,6 +35,17 @@ export default defineSchema({
     ),
   }).index("by_session", ["sessionId"]),
 
+  /** User-level defaults for new open-query search scope. */
+  userSearchPrefs: defineTable({
+    userId: v.string(),
+    sources: v.optional(
+      v.array(
+        v.union(v.literal("amazon"), v.literal("etsy"), v.literal("web")),
+      ),
+    ),
+    customDomains: v.optional(v.array(v.string())),
+  }).index("by_user", ["userId"]),
+
   openQueries: defineTable({
     sessionId: v.id("sessions"),
     profileId: v.optional(v.id("profiles")),
@@ -46,6 +57,8 @@ export default defineSchema({
         v.union(v.literal("amazon"), v.literal("etsy"), v.literal("web")),
       ),
     ),
+    /** Extra hostnames to include in Firecrawl search (e.g. wayfair.com). */
+    customDomains: v.optional(v.array(v.string())),
     status: v.union(
       v.literal("gathering"),
       v.literal("active"),

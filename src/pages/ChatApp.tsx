@@ -15,6 +15,10 @@ import ProductCard, {
   type ShoppingListSummary,
 } from "../components/ProductCard";
 import {
+  SearchScopeEditor,
+  type MarketplaceSource,
+} from "../components/SearchScopeEditor";
+import {
   IconPanel,
   IconPencil,
   IconPlus,
@@ -567,6 +571,70 @@ function storeContextPanelOpen(open: boolean) {
   }
 }
 
+type OpenQueryRow = {
+  _id: Id<"openQueries">;
+  title: string;
+  brief: string;
+  status: "gathering" | "active" | "paused";
+  sources: MarketplaceSource[] | null;
+  customDomains: string[] | null;
+  lastCheckedAt: number | null;
+};
+
+function defaultSources(
+  sources: MarketplaceSource[] | null,
+): MarketplaceSource[] {
+  // null = legacy unset → all on; [] = user cleared marketplaces (custom-only).
+  if (sources === null) return ["amazon", "etsy", "web"];
+  return sources;
+}
+
+function OpenQueryCard({
+  query,
+  messageKey,
+  onJump,
+  onUpdateScope,
+}: {
+  query: OpenQueryRow;
+  messageKey: string | null;
+  onJump: (key: string) => void;
+  onUpdateScope: (
+    queryId: Id<"openQueries">,
+    sources: MarketplaceSource[],
+    customDomains: string[],
+  ) => Promise<void>;
+}) {
+  const sources = defaultSources(query.sources);
+  const domains = query.customDomains ?? [];
+
+  return (
+    <div className="query-card">
+      <strong>{query.title}</strong>
+      <p>{query.brief}</p>
+      <div className="query-card-footer">
+        <span className="badge">{query.status}</span>
+        {messageKey ? (
+          <button
+            type="button"
+            className="query-jump-btn"
+            onClick={() => onJump(messageKey)}
+          >
+            View in chat
+          </button>
+        ) : null}
+      </div>
+
+      <SearchScopeEditor
+        sources={sources}
+        customDomains={domains}
+        onChange={(nextSources, nextDomains) =>
+          onUpdateScope(query._id, nextSources, nextDomains)
+        }
+      />
+    </div>
+  );
+}
+
 export default function ChatApp() {
   const { data: authSession } = authClient.useSession();
   const ensureSession = useMutation(api.sessions.getOrCreate);
@@ -1046,6 +1114,7 @@ export default function ChatApp() {
   const setVerdict = useMutation(api.findings.setVerdict);
   const createList = useMutation(api.shoppingLists.create);
   const addListItem = useMutation(api.shoppingLists.addItem);
+  const updateSearchScope = useMutation(api.openQueries.updateSearchScope);
 
   async function onSetVerdict(
     findingId: Id<"findings">,
@@ -1207,8 +1276,8 @@ export default function ChatApp() {
           <section className="side-panel context-section">
             <h3>Open queries</h3>
             <p className="hint">
-              Live shopping briefs Carter is watching. Click a card to jump
-              there in chat.
+              Live shopping briefs Carter is watching. Choose marketplaces or
+              sites to search, or jump to the chat turn.
             </p>
             <div className="query-list">
               {(openQueries ?? []).length === 0 ? (
@@ -1219,38 +1288,26 @@ export default function ChatApp() {
                     query,
                     queryMessageAnchors,
                   );
-                  const content = (
-                    <>
-                      <strong>{query.title}</strong>
-                      <p>{query.brief}</p>
-                      <div className="query-card-footer">
-                        <span className="badge">{query.status}</span>
-                        {messageKey ? (
-                          <span className="query-jump-label">
-                            View in chat
-                          </span>
-                        ) : null}
-                      </div>
-                    </>
-                  );
-
-                  if (!messageKey) {
-                    return (
-                      <div className="query-card" key={query._id}>
-                        {content}
-                      </div>
-                    );
-                  }
-
                   return (
-                    <button
-                      type="button"
-                      className="query-card query-card--jump"
+                    <OpenQueryCard
                       key={query._id}
-                      onClick={() => jumpToMessage(messageKey)}
-                    >
-                      {content}
-                    </button>
+                      query={query as OpenQueryRow}
+                      messageKey={messageKey}
+                      onJump={jumpToMessage}
+                      onUpdateScope={async (
+                        queryId,
+                        sources,
+                        customDomains,
+                      ) => {
+                        if (!sessionId) return;
+                        await updateSearchScope({
+                          sessionId,
+                          queryId,
+                          sources,
+                          customDomains,
+                        });
+                      }}
+                    />
                   );
                 })
               )}

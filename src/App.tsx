@@ -5,6 +5,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import ChatApp from "./pages/ChatApp";
 import ListsPage from "./pages/ListsPage";
+import ProfilePage from "./pages/ProfilePage";
 
 function ProtectedApp({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
@@ -42,6 +43,14 @@ export default function App() {
         element={
           <ProtectedApp>
             <ListsPage />
+          </ProtectedApp>
+        }
+      />
+      <Route
+        path="/app/profile"
+        element={
+          <ProtectedApp>
+            <ProfilePage />
           </ProtectedApp>
         }
       />

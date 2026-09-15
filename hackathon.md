@@ -2,7 +2,7 @@
 
 - **Project:** Carter
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy/web via Firecrawl, lets shoppers like or pass findings, save buy-intent products to shopping lists, and emails list price-drop digests through AgentMail.
+- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy/web (and user-chosen sites) via Firecrawl, lets shoppers like or pass findings, save buy-intent products to shopping lists, and emails list price-drop digests through AgentMail.
 - **Live app:** not deployed
 - **Repo:** https://github.com/andersjbe/carter-ai
 - **Frontend:** Convex static hosting
@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-15T12:55:38Z
+- **Last updated:** 2026-09-15T13:43:52Z
 
 ## Log
 
@@ -67,5 +67,8 @@ Polished responsive layout spacing and AppShell account label so chat and produc
 ### 2026-09-15 - aac4dbf
 Made the shopping context panel mobile-friendly with a sheet overlay, close control, and viewport-aware open/collapse behavior (`src/pages/ChatApp.tsx`, `src/index.css`).
 
-### 2026-09-15 - working tree
+### 2026-09-15 - 84c485a
 Added conversation thread delete (cascade session data + agent thread cleanup, in-app confirm popover, seamless handoff to another chat) and inline rename (pencil/double-click, Enter/blur save) so custom titles survive the first message. Softened light-mode user bubbles to cream on ink (`convex/sessions.ts`, `convex/chat.ts`, `src/pages/ChatApp.tsx`, `src/index.css`). Convex features: mutations, agent thread delete/metadata.
+
+### 2026-09-15 - working tree
+Shipped per-query website search selection (Amazon/Etsy/open web toggles plus custom domains via Firecrawl `includeDomains`), user Profile defaults that seed new open queries, and multi-pass digest rechecks that honor the full scope. Fixed mobile topbar overlap so Account no longer collides with email/nav (`convex/lib/searchScope.ts`, `convex/userSearchPrefs.ts`, `convex/openQueries.ts`, `convex/carterAgent.ts`, `convex/digests.ts`, `convex/schema.ts`, `src/pages/ProfilePage.tsx`, `src/components/SearchScopeEditor.tsx`, `src/pages/ChatApp.tsx`, `src/components/AppShell.tsx`). Convex features: schema, indexes, mutations, queries, actions, agent tools.

@@ -2,11 +2,19 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import {
+  applySiteBias,
+  resolveSearchScope,
+  splitSearchLimit,
+  type MarketplaceSource,
+} from "./lib/searchScope";
 
 /** Skip rechecks that ran within this window (matches cron cadence). */
 const MIN_RECHECK_GAP_MS = 6 * 60 * 60 * 1000;
 /** Max list items to scrape per list per run (credits). */
 const MAX_ITEMS_PER_LIST = 8;
+/** Total Firecrawl search results budget per open-query recheck. */
+const RECHECK_SEARCH_LIMIT = 4;
 
 /** Refresh open-query findings for the UI — no email. */
 export const recheckOpenQueries = internalAction({
@@ -35,31 +43,24 @@ export const recheckOpenQueries = internalAction({
         query.searchHints && query.searchHints.length > 0
           ? query.searchHints[0]!
           : query.title;
-      const sources = query.sources ?? ["web"];
-      const source = sources[0] ?? "web";
-
-      const includeDomains =
-        source === "amazon"
-          ? ["amazon.com"]
-          : source === "etsy"
-            ? ["etsy.com"]
-            : undefined;
-      const searchQuery =
-        source === "amazon"
-          ? `${hint} site:amazon.com`
-          : source === "etsy"
-            ? `${hint} site:etsy.com`
-            : hint;
+      const passes = resolveSearchScope(
+        query.sources as MarketplaceSource[] | null,
+        query.customDomains,
+      );
+      const limits = splitSearchLimit(RECHECK_SEARCH_LIMIT, passes.length);
 
       try {
-        await ctx.runAction(internal.firecrawl.searchAndStore, {
-          sessionId: query.sessionId,
-          queryId: query._id,
-          searchQuery,
-          includeDomains,
-          limit: 4,
-          enrichNew: false,
-        });
+        for (let i = 0; i < passes.length; i++) {
+          const pass = passes[i]!;
+          await ctx.runAction(internal.firecrawl.searchAndStore, {
+            sessionId: query.sessionId,
+            queryId: query._id,
+            searchQuery: applySiteBias(hint, pass.siteBias),
+            includeDomains: pass.includeDomains,
+            limit: limits[i] ?? 2,
+            enrichNew: false,
+          });
+        }
       } catch (error) {
         console.error("Firecrawl recheck failed", error);
       }

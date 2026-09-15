@@ -3,18 +3,26 @@ import { Link, useNavigate } from "react-router-dom";
 import { authClient } from "../lib/auth-client";
 import ThemeToggle from "./ThemeToggle";
 
-type AppNav = "chat" | "lists";
+type AppNav = "chat" | "lists" | "profile";
 
 export function AppShell({
   variant,
   children,
 }: {
-  variant: "chat" | "lists";
+  variant: "chat" | "lists" | "profile";
   children: ReactNode;
 }) {
   return (
     <div className={`app-shell app-shell--${variant}`}>
-      <AppTopbar current={variant === "chat" ? "chat" : "lists"} />
+      <AppTopbar
+        current={
+          variant === "chat"
+            ? "chat"
+            : variant === "lists"
+              ? "lists"
+              : "profile"
+        }
+      />
       {children}
     </div>
   );
@@ -89,6 +97,21 @@ export function AppTopbar({ current }: { current: AppNav }) {
               Lists
             </Link>
           )}
+          {current === "profile" ? (
+            <span
+              className="btn btn-ghost btn-compact is-current app-topbar-nav-profile"
+              aria-current="page"
+            >
+              Profile
+            </span>
+          ) : (
+            <Link
+              className="btn btn-ghost btn-compact app-topbar-nav-profile"
+              to="/app/profile"
+            >
+              Profile
+            </Link>
+          )}
         </nav>
         <ThemeToggle />
         <div className="account-menu" ref={menuRef}>
@@ -97,6 +120,7 @@ export function AppTopbar({ current }: { current: AppNav }) {
             className="btn btn-ghost btn-compact account-menu-trigger"
             aria-expanded={menuOpen}
             aria-haspopup="menu"
+            aria-label={email ? `Account (${email})` : "Account"}
             onClick={() => setMenuOpen((open) => !open)}
           >
             {email ? (
@@ -115,6 +139,14 @@ export function AppTopbar({ current }: { current: AppNav }) {
                   {email}
                 </p>
               ) : null}
+              <Link
+                className="account-menu-item"
+                role="menuitem"
+                to="/app/profile"
+                onClick={() => setMenuOpen(false)}
+              >
+                Profile
+              </Link>
               <button
                 type="button"
                 className="account-menu-item"

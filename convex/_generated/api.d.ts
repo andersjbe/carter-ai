@@ -17,6 +17,7 @@ import type * as digests from "../digests.js";
 import type * as findings from "../findings.js";
 import type * as firecrawl from "../firecrawl.js";
 import type * as http from "../http.js";
+import type * as lib_searchScope from "../lib/searchScope.js";
 import type * as lib_sessionAuth from "../lib/sessionAuth.js";
 import type * as lib_sessionTitle from "../lib/sessionTitle.js";
 import type * as mail from "../mail.js";
@@ -24,6 +25,7 @@ import type * as openQueries from "../openQueries.js";
 import type * as profiles from "../profiles.js";
 import type * as sessions from "../sessions.js";
 import type * as shoppingLists from "../shoppingLists.js";
+import type * as userSearchPrefs from "../userSearchPrefs.js";
 
 import type {
   ApiFromModules,
@@ -41,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   findings: typeof findings;
   firecrawl: typeof firecrawl;
   http: typeof http;
+  "lib/searchScope": typeof lib_searchScope;
   "lib/sessionAuth": typeof lib_sessionAuth;
   "lib/sessionTitle": typeof lib_sessionTitle;
   mail: typeof mail;
@@ -48,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   sessions: typeof sessions;
   shoppingLists: typeof shoppingLists;
+  userSearchPrefs: typeof userSearchPrefs;
 }>;
 
 /**
