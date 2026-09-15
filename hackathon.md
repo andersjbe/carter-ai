@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-15T13:43:52Z
+- **Last updated:** 2026-09-15T21:16:00Z
 
 ## Log
 
@@ -72,3 +72,9 @@ Added conversation thread delete (cascade session data + agent thread cleanup, i
 
 ### 2026-09-15 - working tree
 Shipped per-query website search selection (Amazon/Etsy/open web toggles plus custom domains via Firecrawl `includeDomains`), user Profile defaults that seed new open queries, and multi-pass digest rechecks that honor the full scope. Fixed mobile topbar overlap so Account no longer collides with email/nav (`convex/lib/searchScope.ts`, `convex/userSearchPrefs.ts`, `convex/openQueries.ts`, `convex/carterAgent.ts`, `convex/digests.ts`, `convex/schema.ts`, `src/pages/ProfilePage.tsx`, `src/components/SearchScopeEditor.tsx`, `src/pages/ChatApp.tsx`, `src/components/AppShell.tsx`). Convex features: schema, indexes, mutations, queries, actions, agent tools.
+
+### 2026-09-15 - 09ba5e0
+Committed the search-scope / Profile defaults work from the working tree (`convex/userSearchPrefs.ts`, `convex/lib/searchScope.ts`, `src/pages/ProfilePage.tsx`, `src/components/SearchScopeEditor.tsx`). Convex features: schema, indexes, mutations, queries.
+
+### 2026-09-15 - working tree
+Hardened Better Auth for production: Google OAuth on login (optional `GOOGLE_CLIENT_*` env), required email verification and password reset/forgot flows via AgentMail auth mail, and Profile account deletion that purges chats, lists, prefs, and agent threads before removing the Better Auth user (`convex/auth.ts`, `convex/accounts.ts`, `convex/mail.ts`, `src/pages/LoginPage.tsx`, `src/pages/ForgotPasswordPage.tsx`, `src/pages/ResetPasswordPage.tsx`, `src/pages/ProfilePage.tsx`, `.env.example`, `README.md`). Convex features: auth, mutations, actions, HTTP actions.

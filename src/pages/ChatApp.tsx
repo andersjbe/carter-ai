@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "convex/react";
 import {
   optimisticallySendMessage,
@@ -1278,6 +1279,11 @@ export default function ChatApp() {
             <p className="hint">
               Live shopping briefs Carter is watching. Choose marketplaces or
               sites to search, or jump to the chat turn.
+            </p>
+            <p className="hint query-defaults-hint">
+              Set default sites for new queries in{" "}
+              <Link to="/app/profile">Profile</Link>. You can still change
+              sites on any query after it starts.
             </p>
             <div className="query-list">
               {(openQueries ?? []).length === 0 ? (

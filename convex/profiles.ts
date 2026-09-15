@@ -5,8 +5,10 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
-import { requireOwnedSession } from "./lib/sessionAuth";
+import {
+  requireOwnedSession,
+  requireVerifiedAuthEmail,
+} from "./lib/sessionAuth";
 
 const prefsValidator = v.object({
   budgetMin: v.optional(v.number()),
@@ -92,6 +94,7 @@ export const setEmail = mutation({
   returns: v.id("profiles"),
   handler: async (ctx, args) => {
     await requireOwnedSession(ctx, args.sessionId);
+    await requireVerifiedAuthEmail(ctx);
     const email = args.email.trim().toLowerCase();
     if (!email.includes("@")) {
       throw new Error("Enter a valid email address.");
@@ -138,12 +141,3 @@ export const getInternal = internalQuery({
     };
   },
 });
-
-export async function requireSession(
-  ctx: { db: { get: (id: Id<"sessions">) => Promise<unknown> } },
-  sessionId: Id<"sessions">,
-) {
-  const session = await ctx.db.get(sessionId);
-  if (!session) throw new Error("Unknown session");
-  return session;
-}

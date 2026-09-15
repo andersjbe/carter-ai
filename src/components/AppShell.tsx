@@ -97,21 +97,6 @@ export function AppTopbar({ current }: { current: AppNav }) {
               Lists
             </Link>
           )}
-          {current === "profile" ? (
-            <span
-              className="btn btn-ghost btn-compact is-current app-topbar-nav-profile"
-              aria-current="page"
-            >
-              Profile
-            </span>
-          ) : (
-            <Link
-              className="btn btn-ghost btn-compact app-topbar-nav-profile"
-              to="/app/profile"
-            >
-              Profile
-            </Link>
-          )}
         </nav>
         <ThemeToggle />
         <div className="account-menu" ref={menuRef}>

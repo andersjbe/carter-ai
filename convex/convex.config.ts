@@ -12,6 +12,9 @@ const app = defineApp({
     FIRECRAWL_WEBHOOK_SECRET: v.optional(v.string()),
     SITE_URL: v.string(),
     BETTER_AUTH_SECRET: v.string(),
+    // Required for Google sign-in — set via `npx convex env set GOOGLE_CLIENT_*`
+    GOOGLE_CLIENT_ID: v.optional(v.string()),
+    GOOGLE_CLIENT_SECRET: v.optional(v.string()),
   },
 });
 

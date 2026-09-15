@@ -11,7 +11,7 @@ import {
 import { components, internal } from "./_generated/api";
 import { AgentMail } from "@agentmail/convex";
 import type { Id } from "./_generated/dataModel";
-import { requireAuthUserId } from "./lib/sessionAuth";
+import { requireAuthUserId, requireVerifiedAuthEmail } from "./lib/sessionAuth";
 
 const agentmail = new AgentMail(components.agentmail);
 
@@ -62,8 +62,11 @@ export const setAlerts = mutation({
   handler: async (ctx, args) => {
     await requireOwnedList(ctx, args.listId);
     const email = args.email?.trim().toLowerCase();
-    if (args.enabled && (!email || !email.includes("@"))) {
-      throw new Error("Email is required to enable alerts.");
+    if (args.enabled) {
+      await requireVerifiedAuthEmail(ctx);
+      if (!email || !email.includes("@")) {
+        throw new Error("Email is required to enable alerts.");
+      }
     }
 
     const existing = await ctx.db
@@ -237,6 +240,56 @@ export const sendDigest = internalMutation({
     });
     await ctx.runMutation(internal.mail.markEmailed, {
       listId: args.listId,
+    });
+    return null;
+  },
+});
+
+/** Auth transactional email (password reset / verification) via shared AgentMail inbox. */
+export const sendAuthEmail = internalAction({
+  args: {
+    to: v.string(),
+    subject: v.string(),
+    text: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let inboxId: string | null = await ctx.runQuery(
+      internal.mail.getSharedInbox,
+      {},
+    );
+    if (!inboxId) {
+      const inbox = await agentmail.createInbox(ctx, {
+        username: "carter-auth",
+        displayName: "Carter Auth",
+      });
+      inboxId = String(inbox.inbox_id ?? inbox.id ?? inbox.inboxId);
+      await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
+    }
+    await ctx.runMutation(internal.mail.deliverAuthEmail, {
+      inboxId,
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+    });
+    return null;
+  },
+});
+
+export const deliverAuthEmail = internalMutation({
+  args: {
+    inboxId: v.string(),
+    to: v.string(),
+    subject: v.string(),
+    text: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await agentmail.sendMessage(ctx, args.inboxId, {
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+      labels: ["carter-auth"],
     });
     return null;
   },

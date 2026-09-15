@@ -12,6 +12,20 @@ export async function requireAuthUserId(ctx: DbCtx): Promise<string> {
   return user._id;
 }
 
+/** Require a signed-in user whose auth email is verified (Google or email link). */
+export async function requireVerifiedAuthEmail(
+  ctx: DbCtx,
+): Promise<{ userId: string; email: string }> {
+  const user = await authComponent.safeGetAuthUser(ctx);
+  if (!user) {
+    throw new Error("Not authenticated");
+  }
+  if (!user.emailVerified) {
+    throw new Error("Verify your email before using email alerts or profile email.");
+  }
+  return { userId: user._id, email: user.email };
+}
+
 export async function requireOwnedSession(
   ctx: DbCtx,
   sessionId: Id<"sessions">,
