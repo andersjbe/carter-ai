@@ -50,15 +50,28 @@ export default function ThemeToggle({ className }: { className?: string }) {
     applyTheme(theme);
   }, [theme]);
 
+  const isDark = theme === "dark";
+
   return (
     <button
       type="button"
       className={className ?? "icon-btn theme-toggle"}
       onClick={() => setTheme(toggleTheme())}
-      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      title={theme === "dark" ? "Light mode" : "Dark mode"}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Light mode" : "Dark mode"}
     >
-      {theme === "dark" ? <IconSun /> : <IconMoon />}
+      <span className="theme-toggle-icons" aria-hidden="true">
+        <span
+          className={`theme-toggle-icon theme-toggle-icon--sun${isDark ? " is-active" : ""}`}
+        >
+          <IconSun />
+        </span>
+        <span
+          className={`theme-toggle-icon theme-toggle-icon--moon${!isDark ? " is-active" : ""}`}
+        >
+          <IconMoon />
+        </span>
+      </span>
     </button>
   );
 }

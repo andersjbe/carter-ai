@@ -4,6 +4,8 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { formatPrice } from "../lib/format";
 import { IconPlus, IconThumbsUp, IconX } from "./icons";
 
+const EXIT_MS = 180;
+
 export type ProductCardData = {
   _id?: Id<"findings">;
   title: string;
@@ -30,7 +32,7 @@ type ChatProductCardProps = {
   onSetVerdict?: (
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
-  ) => void;
+  ) => void | Promise<void>;
   shoppingLists?: ShoppingListSummary[];
   onAddToList?: (
     findingId: Id<"findings">,
@@ -62,9 +64,20 @@ export default function ProductCard(props: ProductCardProps) {
 
 function ListProductCard({ product, onRemove }: ListProductCardProps) {
   const priceLabel = formatPrice(product.price, product.currency);
+  const [leaving, setLeaving] = useState(false);
+
+  function handleRemove() {
+    if (leaving) return;
+    setLeaving(true);
+    window.setTimeout(() => {
+      onRemove();
+    }, EXIT_MS);
+  }
 
   return (
-    <article className="product-card product-card--list">
+    <article
+      className={`product-card product-card--list${leaving ? " is-leaving" : ""}`}
+    >
       <a
         className="product-card-media"
         href={product.url}
@@ -96,7 +109,8 @@ function ListProductCard({ product, onRemove }: ListProductCardProps) {
           <button
             type="button"
             className="product-remove-btn"
-            onClick={onRemove}
+            onClick={handleRemove}
+            disabled={leaving}
           >
             Remove
           </button>
@@ -122,27 +136,60 @@ function ChatProductCard({
   const [addedListId, setAddedListId] = useState<Id<"shoppingLists"> | null>(
     null,
   );
+  const [leaving, setLeaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [verdictBusy, setVerdictBusy] = useState(false);
 
   async function addToTarget(
     target: Id<"shoppingLists"> | { createName: string },
   ) {
     if (!product._id || !onAddToList || adding) return;
     setAdding(true);
+    setActionError(null);
     try {
       const listId = await onAddToList(product._id, target);
       setPickerOpen(false);
       setNewListName("");
       setAddedListId(listId);
-    } catch (error) {
-      console.error("Failed to add to shopping list", error);
+    } catch {
+      setActionError("Couldn't add to list. Try again.");
     } finally {
       setAdding(false);
     }
   }
 
+  async function handleVerdict(next: "accepted" | "rejected" | null) {
+    if (!product._id || !onSetVerdict || verdictBusy || leaving) return;
+    setActionError(null);
+
+    if (next === "rejected") {
+      setLeaving(true);
+      setVerdictBusy(true);
+      await new Promise((resolve) => window.setTimeout(resolve, EXIT_MS));
+      try {
+        await onSetVerdict(product._id, "rejected");
+      } catch {
+        setLeaving(false);
+        setActionError("Couldn't update. Try again.");
+      } finally {
+        setVerdictBusy(false);
+      }
+      return;
+    }
+
+    setVerdictBusy(true);
+    try {
+      await onSetVerdict(product._id, next);
+    } catch {
+      setActionError("Couldn't update. Try again.");
+    } finally {
+      setVerdictBusy(false);
+    }
+  }
+
   return (
     <article
-      className={`product-card product-card--chat${isAccepted ? " is-accepted" : ""}`}
+      className={`product-card product-card--chat${isAccepted ? " is-accepted" : ""}${leaving ? " is-leaving" : ""}`}
     >
       <a
         className="product-card-media"
@@ -184,8 +231,9 @@ function ChatProductCard({
               aria-label={isAccepted ? "Unlike" : "Like"}
               aria-pressed={isAccepted}
               title={isAccepted ? "Unlike" : "Like"}
+              disabled={verdictBusy || leaving}
               onClick={() =>
-                onSetVerdict(product._id!, isAccepted ? null : "accepted")
+                void handleVerdict(isAccepted ? null : "accepted")
               }
             >
               <IconThumbsUp />
@@ -196,7 +244,8 @@ function ChatProductCard({
                 className="product-verdict-btn product-verdict-btn-reject"
                 aria-label="Reject"
                 title="Reject"
-                onClick={() => onSetVerdict(product._id!, "rejected")}
+                disabled={verdictBusy || leaving}
+                onClick={() => void handleVerdict("rejected")}
               >
                 <IconX />
               </button>
@@ -210,8 +259,10 @@ function ChatProductCard({
               className={`product-add-list-text${pickerOpen ? " is-selected" : ""}`}
               aria-expanded={pickerOpen}
               title="Add to list"
+              disabled={leaving}
               onClick={() => {
                 setAddedListId(null);
+                setActionError(null);
                 setPickerOpen((open) => !open);
               }}
             >
@@ -224,6 +275,11 @@ function ChatProductCard({
           <p className="list-added-note">
             Added.{" "}
             <Link to={`/app/lists?list=${addedListId}`}>View shopping list</Link>
+          </p>
+        ) : null}
+        {actionError ? (
+          <p className="product-action-error" role="alert">
+            {actionError}
           </p>
         ) : null}
         {pickerOpen && canAdd ? (

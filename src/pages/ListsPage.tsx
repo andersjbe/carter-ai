@@ -241,7 +241,12 @@ export default function ListsPage() {
         </aside>
 
         <main className="panel lists-main" aria-label="List details">
-          {selectedListId && selectedList ? (
+          {selectedListId && selectedList === undefined ? (
+            <div className="lists-empty-state">
+              <h2>Loading list…</h2>
+              <p className="hint">Fetching your list details.</p>
+            </div>
+          ) : selectedListId && selectedList ? (
             <>
               <header className="lists-detail-header">
                 <div className="lists-title-row">

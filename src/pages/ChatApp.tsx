@@ -456,7 +456,7 @@ function MessageBubble({
   onSetVerdict: (
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
-  ) => void;
+  ) => void | Promise<void>;
   shoppingLists?: ShoppingListSummary[];
   onAddToList?: (
     findingId: Id<"findings">,
@@ -484,7 +484,15 @@ function MessageBubble({
     >
       <div className="meta">{role === "user" ? "You" : "Carter"}</div>
       <div className="body">
-        {text || (message.status === "streaming" ? "…" : "")}
+        {text ? (
+          text
+        ) : message.status === "streaming" ? (
+          <span className="message-streaming" aria-label="Carter is thinking">
+            <span />
+            <span />
+            <span />
+          </span>
+        ) : null}
       </div>
       {products.length > 0 ? (
         <>
@@ -663,6 +671,12 @@ export default function ChatApp() {
   const [contextOpen, setContextOpen] = useState(() =>
     isMobileViewport() ? false : readContextPanelOpen(),
   );
+  const [threadsLeaving, setThreadsLeaving] = useState(false);
+  const [contextLeaving, setContextLeaving] = useState(false);
+  const sheetExitTimersRef = useRef<{
+    threads?: ReturnType<typeof setTimeout>;
+    context?: ReturnType<typeof setTimeout>;
+  }>({});
   const [knowsExpanded, setKnowsExpanded] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
   const [draft, setDraft] = useState("");
@@ -714,6 +728,36 @@ export default function ChatApp() {
     return rows.filter((row) => row.title.toLowerCase().includes(q));
   }, [conversations, threadSearch]);
 
+  function closeThreadsSidebar(options?: { animated?: boolean }) {
+    const animated =
+      options?.animated !== false &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches;
+
+    if (!animated || !threadsOpen) {
+      window.clearTimeout(sheetExitTimersRef.current.threads);
+      setThreadsLeaving(false);
+      setThreadsOpen(false);
+      storeThreadsSidebarOpen(false);
+      return;
+    }
+
+    setThreadsLeaving(true);
+    window.clearTimeout(sheetExitTimersRef.current.threads);
+    sheetExitTimersRef.current.threads = setTimeout(() => {
+      setThreadsOpen(false);
+      storeThreadsSidebarOpen(false);
+      setThreadsLeaving(false);
+    }, 180);
+  }
+
+  function openThreadsSidebar() {
+    window.clearTimeout(sheetExitTimersRef.current.threads);
+    setThreadsLeaving(false);
+    setThreadsOpen(true);
+    storeThreadsSidebarOpen(true);
+  }
+
   function selectConversation(
     nextSessionId: Id<"sessions">,
     nextThreadId: string,
@@ -734,37 +778,57 @@ export default function ChatApp() {
       typeof window !== "undefined" &&
       window.matchMedia("(max-width: 900px)").matches
     ) {
-      setThreadsOpen(false);
-      storeThreadsSidebarOpen(false);
+      closeThreadsSidebar({ animated: true });
     }
   }
 
   function toggleThreadsSidebar() {
-    setThreadsOpen((open) => {
-      const next = !open;
-      storeThreadsSidebarOpen(next);
-      return next;
-    });
+    if (threadsOpen) {
+      closeThreadsSidebar({ animated: true });
+      return;
+    }
+    openThreadsSidebar();
   }
 
   function toggleContextPanel() {
-    const next = !contextOpen;
+    if (contextOpen) {
+      closeContextPanel();
+      return;
+    }
+    const next = true;
     if (isMobileViewport()) {
-      if (next && threadsOpen) {
-        setThreadsOpen(false);
-        storeThreadsSidebarOpen(false);
+      if (threadsOpen) {
+        closeThreadsSidebar({ animated: true });
       }
     } else {
       storeContextPanelOpen(next);
     }
+    window.clearTimeout(sheetExitTimersRef.current.context);
+    setContextLeaving(false);
     setContextOpen(next);
   }
 
   function closeContextPanel() {
-    setContextOpen(false);
-    if (!isMobileViewport()) {
-      storeContextPanelOpen(false);
+    const animated =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches;
+
+    if (!animated || !contextOpen) {
+      window.clearTimeout(sheetExitTimersRef.current.context);
+      setContextLeaving(false);
+      setContextOpen(false);
+      if (!isMobileViewport()) {
+        storeContextPanelOpen(false);
+      }
+      return;
     }
+
+    setContextLeaving(true);
+    window.clearTimeout(sheetExitTimersRef.current.context);
+    sheetExitTimersRef.current.context = setTimeout(() => {
+      setContextOpen(false);
+      setContextLeaving(false);
+    }, 180);
   }
 
   useEffect(() => {
@@ -786,7 +850,7 @@ export default function ChatApp() {
     if (!contextOpen || !isMobile) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setContextOpen(false);
+        closeContextPanel();
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -795,8 +859,7 @@ export default function ChatApp() {
 
   function openSidebarForSearch() {
     if (!threadsOpen) {
-      setThreadsOpen(true);
-      storeThreadsSidebarOpen(true);
+      openThreadsSidebar();
     }
     queueMicrotask(() => searchInputRef.current?.focus());
   }
@@ -850,8 +913,7 @@ export default function ChatApp() {
     setTitleDraft(currentTitle);
     setEditingSessionId(targetSessionId);
     if (!threadsOpen) {
-      setThreadsOpen(true);
-      storeThreadsSidebarOpen(true);
+      openThreadsSidebar();
     }
   }
 
@@ -1066,7 +1128,7 @@ export default function ChatApp() {
     if (!(target instanceof HTMLElement)) return;
 
     if (isMobileViewport()) {
-      setContextOpen(false);
+      closeContextPanel();
     }
 
     stickToBottomRef.current = false;
@@ -1127,11 +1189,7 @@ export default function ChatApp() {
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
   ) {
-    try {
-      await setVerdict({ findingId, verdict });
-    } catch (error) {
-      console.error("Failed to set finding verdict", error);
-    }
+    await setVerdict({ findingId, verdict });
   }
 
   async function onAddToList(
@@ -1231,7 +1289,7 @@ export default function ChatApp() {
     contextOpen ? (
       <aside
         id="context-panel"
-        className={`panel context-panel${isMobile ? " context-panel--sheet" : ""}`}
+        className={`panel context-panel${isMobile ? " context-panel--sheet" : ""}${contextLeaving ? " is-leaving" : ""}`}
         aria-label="Shopping context"
         role={isMobile ? "dialog" : undefined}
         aria-modal={isMobile ? true : undefined}
@@ -1372,7 +1430,7 @@ export default function ChatApp() {
         {threadsOpen ? (
           <button
             type="button"
-            className="threads-backdrop"
+            className={`threads-backdrop${threadsLeaving ? " is-leaving" : ""}`}
             aria-label="Close chat sidebar"
             onClick={toggleThreadsSidebar}
           />
@@ -1380,7 +1438,7 @@ export default function ChatApp() {
 
         <aside
           id="threads-sidebar"
-          className={`panel threads-sidebar${threadsOpen ? " is-open" : " is-collapsed"}`}
+          className={`panel threads-sidebar${threadsOpen ? " is-open" : " is-collapsed"}${threadsLeaving ? " is-leaving" : ""}`}
           aria-label="Conversations"
         >
           {threadsOpen ? (
@@ -1422,9 +1480,11 @@ export default function ChatApp() {
               <ul className="thread-list">
                 {filteredConversations.length === 0 ? (
                   <li className="thread-list-empty">
-                    {threadSearch.trim()
-                      ? "No matching threads"
-                      : "No chats yet"}
+                    {conversations === undefined
+                      ? "Loading chats…"
+                      : threadSearch.trim()
+                        ? "No matching threads"
+                        : "No chats yet"}
                   </li>
                 ) : (
                   filteredConversations.map((row) => {
@@ -1699,7 +1759,7 @@ export default function ChatApp() {
         {isMobile && contextOpen ? (
           <button
             type="button"
-            className="context-backdrop"
+            className={`context-backdrop${contextLeaving ? " is-leaving" : ""}`}
             aria-label="Close context"
             onClick={closeContextPanel}
           />
