@@ -22,40 +22,94 @@ export type CarterCtx = ToolCtx & {
 
 const updatePreferences = createTool({
   description:
-    "Save what you learned about the user's needs, wants, budget, style, constraints, and preferences.",
+    "Save shopper taste as BOTH a prose summary AND structured fields. Always extract every concrete detail the user (or reply chips) stated into the matching fields — do not put facts only in summary. Structured fields power the UI preference chips.",
   inputSchema: z.object({
     summary: z
       .string()
       .describe("Short natural-language summary of the shopper so far"),
-    budgetMin: z.number().optional().describe("Minimum budget in USD"),
-    budgetMax: z.number().optional().describe("Maximum budget in USD"),
-    categories: z.array(z.string()).optional(),
-    styles: z.array(z.string()).optional(),
-    brandsAvoid: z.array(z.string()).optional(),
-    brandsPrefer: z.array(z.string()).optional(),
-    constraints: z.array(z.string()).optional(),
-    useCases: z.array(z.string()).optional(),
-    urgency: z.string().optional(),
-    notes: z.string().optional(),
+    budgetMin: z
+      .number()
+      .optional()
+      .describe(
+        "Minimum budget in USD when the user stated a floor (e.g. 25 from 'under $25–$100' → use 0 or the lower bound)",
+      ),
+    budgetMax: z
+      .number()
+      .optional()
+      .describe(
+        "Maximum budget in USD when the user stated a ceiling (e.g. 'under $100' → 100)",
+      ),
+    categories: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Product categories or gift types (e.g. dorm essentials, baby clothes, desk lamps)",
+      ),
+    styles: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Style/aesthetic words the user chose or said (e.g. business casual, sleek, whimsical)",
+      ),
+    brandsAvoid: z
+      .array(z.string())
+      .optional()
+      .describe("Brands to avoid when the user named any"),
+    brandsPrefer: z
+      .array(z.string())
+      .optional()
+      .describe("Preferred brands when the user named any (omit if none)"),
+    constraints: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Hard constraints / must-haves (e.g. big and tall, portable, larger hands, wireless)",
+      ),
+    useCases: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Where/how they'll use it (e.g. office work, late-night studying, events)",
+      ),
+    urgency: z.string().optional().describe("Timing if mentioned"),
+    notes: z
+      .string()
+      .optional()
+      .describe("Extra freeform notes that do not fit other fields"),
   }),
   execute: async (ctx: CarterCtx, args): Promise<string> => {
+    const prefs: {
+      budgetMin?: number;
+      budgetMax?: number;
+      categories?: string[];
+      styles?: string[];
+      brandsAvoid?: string[];
+      brandsPrefer?: string[];
+      constraints?: string[];
+      useCases?: string[];
+      urgency?: string;
+      notes?: string;
+    } = {};
+    if (args.budgetMin !== undefined) prefs.budgetMin = args.budgetMin;
+    if (args.budgetMax !== undefined) prefs.budgetMax = args.budgetMax;
+    if (args.categories?.length) prefs.categories = args.categories;
+    if (args.styles?.length) prefs.styles = args.styles;
+    if (args.brandsAvoid?.length) prefs.brandsAvoid = args.brandsAvoid;
+    if (args.brandsPrefer?.length) prefs.brandsPrefer = args.brandsPrefer;
+    if (args.constraints?.length) prefs.constraints = args.constraints;
+    if (args.useCases?.length) prefs.useCases = args.useCases;
+    if (args.urgency) prefs.urgency = args.urgency;
+    if (args.notes) prefs.notes = args.notes;
+
+    const structuredCount = Object.keys(prefs).length;
     await ctx.runMutation(internal.profiles.upsertPreferences, {
       sessionId: ctx.sessionId,
       summary: args.summary,
-      prefs: {
-        budgetMin: args.budgetMin,
-        budgetMax: args.budgetMax,
-        categories: args.categories,
-        styles: args.styles,
-        brandsAvoid: args.brandsAvoid,
-        brandsPrefer: args.brandsPrefer,
-        constraints: args.constraints,
-        useCases: args.useCases,
-        urgency: args.urgency,
-        notes: args.notes,
-      },
+      prefs: structuredCount > 0 ? prefs : undefined,
     });
-    return "Preferences saved.";
+    return structuredCount > 0
+      ? `Preferences saved (${structuredCount} structured fields).`
+      : "Preferences saved (summary only — extract budget/styles/categories/constraints/useCases/brands into fields on the next update).";
   },
 });
 
@@ -497,8 +551,8 @@ export const carterAgent = new Agent<CarterCtx>(components.agent, {
 
 Your job:
 1. On the user's first request, ask clarifying questions ONCE (budget, style, constraints, brands, must-haves, etc.) — then stop asking.
-2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
-3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Save what you know with updatePreferences, make reasonable assumptions for anything still missing, and create an open shopping query with createOpenQuery ONCE (omit sources/customDomains unless the user asked for specific sites — Profile defaults apply). Reuse that queryId for the rest of this hunt. Do not create another similar open query.
+2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Prefer prompt labels that map to preference fields: Budget, Style, Brands, Must-haves, Use case, Category. Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
+3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Immediately call updatePreferences: put a short summary AND fill every matching structured field from their reply (budgetMin/budgetMax, styles, categories, useCases, constraints, brandsPrefer/brandsAvoid). Reply-chip lines like "Budget: under $100" or "Style: sleek and modern" MUST become those fields — never summary-only. Then make reasonable assumptions for anything still missing, and create an open shopping query with createOpenQuery ONCE (omit sources/customDomains unless the user asked for specific sites — Profile defaults apply). Reuse that queryId for the rest of this hunt. Do not create another similar open query. Call updatePreferences again whenever the user adds or changes taste details later.
 4. Store discovery (once only): If Discover stores (web) is on and customDomains is empty, call discoverMarketplaces once, briefly ask which specialty stores to add, then STOP and wait. After the user Adds or Skips stores — or if discovery returns skipped — never call discoverMarketplaces again for that query. Never invent domains. Never product-search the open web.
 5. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts when you need fresh results; it only uses Amazon/Etsy toggles and custom domains on the query. After results are shown, continue the conversation about those picks (refine, compare, list) without rediscovering stores or spawning a new open query. Users can edit sites per query in the Open queries panel. Use scrapeProduct sparingly only for promising URLs missing price/image.
 6. After tools return products, write a short conversational take: which picks fit and why (a few sentences). The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Do not paste markdown images, numbered product lists, or raw product URLs when cards are shown. Light **bold** emphasis is fine for prose only. Users can like or pass cards in the UI (preference signal via listFindings) and separately add products to shopping lists when they intend to buy.

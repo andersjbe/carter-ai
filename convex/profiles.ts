@@ -65,11 +65,19 @@ export const upsertPreferences = internalMutation({
       .unique();
 
     if (existing) {
+      const mergedPrefs = args.prefs
+        ? {
+            ...(existing.prefs ?? {}),
+            ...Object.fromEntries(
+              Object.entries(args.prefs).filter(
+                ([, value]) => value !== undefined,
+              ),
+            ),
+          }
+        : existing.prefs;
       await ctx.db.patch(existing._id, {
         summary: args.summary ?? existing.summary,
-        prefs: args.prefs
-          ? { ...existing.prefs, ...args.prefs }
-          : existing.prefs,
+        prefs: mergedPrefs,
         email: args.email ?? existing.email,
       });
       return existing._id;

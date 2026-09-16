@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-16T00:20:00Z
+- **Last updated:** 2026-09-16T12:55:19Z
 
 ## Log
 
@@ -102,3 +102,9 @@ Committed Discover-stores marketplace search, chat store chips, MessageMarkdown,
 
 ### 2026-09-16 - working tree
 Hardened ownership and cron fairness: agent tools verify open-query session ownership, alerts/profile email lock to the verified account address, shopping lists use denormalized `itemCount` with bounded reads, and open-query/digest crons rotate via `lastCheckedAt` / `lastEmailedAt` indexes; AgentMail shared inbox create is first-writer-wins (`convex/lib/sessionAuth.ts`, `convex/carterAgent.ts`, `convex/mail.ts`, `convex/profiles.ts`, `convex/shoppingLists.ts`, `convex/openQueries.ts`, `convex/schema.ts`, `src/pages/ListsPage.tsx`). Convex features: schema, indexes, mutations, queries, actions, auth.
+
+### 2026-09-16 - 62437c4
+Committed the ownership, batch list deletion, session cleanup, and fair-cron indexing work from the working tree (`convex/shoppingLists.ts`, `convex/accounts.ts`, `convex/schema.ts`, `convex/mail.ts`, `convex/lib/sessionAuth.ts`). Convex features: schema, indexes, mutations, queries, actions, auth.
+
+### 2026-09-16 - working tree
+Simplified the shopping context panel: Findings cards stack image over text for the narrow column, and What Carter knows shows only the prose summary (no preference chips or show-details toggle). Tightened `updatePreferences` so reply-chip answers land in structured fields with merge-safe upserts (`src/pages/ChatApp.tsx`, `src/index.css`, `convex/carterAgent.ts`, `convex/profiles.ts`). Convex features: mutations, agent tools, realtime queries.

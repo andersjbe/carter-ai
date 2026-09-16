@@ -843,7 +843,6 @@ export default function ChatApp() {
     threads?: ReturnType<typeof setTimeout>;
     context?: ReturnType<typeof setTimeout>;
   }>({});
-  const [knowsExpanded, setKnowsExpanded] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [replySelections, setReplySelections] = useState<
@@ -933,7 +932,6 @@ export default function ChatApp() {
     setThreadId(nextThreadId);
     setDraft("");
     setReplySelections({});
-    setKnowsExpanded(false);
     setHighlightedMessageKey(null);
     stickToBottomRef.current = true;
     const userId = authSession?.user?.id;
@@ -1517,37 +1515,6 @@ export default function ChatApp() {
     );
   }
 
-  const prefChips = useMemo(() => {
-    const prefs = profile?.prefs;
-    if (!prefs) return [] as Array<{ label: string; key: string }>;
-    const chips: Array<{ label: string; key: string }> = [];
-    if (prefs.budgetMax != null || prefs.budgetMin != null) {
-      const label =
-        prefs.budgetMin != null && prefs.budgetMax != null
-          ? `$${prefs.budgetMin}–$${prefs.budgetMax}`
-          : prefs.budgetMax != null
-            ? `up to $${prefs.budgetMax}`
-            : `from $${prefs.budgetMin}`;
-      chips.push({ key: `budget-${label}`, label });
-    }
-    for (const item of prefs.brandsPrefer ?? []) {
-      chips.push({ key: `brand-${item}`, label: item });
-    }
-    for (const item of prefs.styles ?? []) {
-      chips.push({ key: `style-${item}`, label: item });
-    }
-    for (const item of prefs.categories ?? []) {
-      chips.push({ key: `cat-${item}`, label: item });
-    }
-    for (const item of prefs.useCases ?? []) {
-      chips.push({ key: `use-${item}`, label: item });
-    }
-    for (const item of prefs.constraints ?? []) {
-      chips.push({ key: `con-${item}`, label: item });
-    }
-    return chips.slice(0, 16);
-  }, [profile]);
-
   const knowsSummary =
     profile?.summary?.trim() ||
     "Preferences appear here as Carter learns your taste.";
@@ -1575,34 +1542,7 @@ export default function ChatApp() {
         <div className="context-stack">
           <section className="side-panel context-section">
             <h3>What Carter knows</h3>
-            <div className="chips">
-              {prefChips.length === 0 ? (
-                <span className="empty">No preferences yet</span>
-              ) : (
-                prefChips.map((chip) => (
-                  <span className="chip" key={chip.key}>
-                    {chip.label}
-                  </span>
-                ))
-              )}
-            </div>
-            {profile?.summary ? (
-              <div className="knows-summary">
-                <button
-                  type="button"
-                  className="knows-summary-toggle"
-                  aria-expanded={knowsExpanded}
-                  onClick={() => setKnowsExpanded((open) => !open)}
-                >
-                  {knowsExpanded ? "Hide details" : "Show details"}
-                </button>
-                {knowsExpanded ? (
-                  <p className="hint knows-summary-text">{knowsSummary}</p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="hint knows-summary-text">{knowsSummary}</p>
-            )}
+            <p className="hint knows-summary-text">{knowsSummary}</p>
           </section>
 
           <section className="side-panel context-section">
