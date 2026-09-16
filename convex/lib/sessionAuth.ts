@@ -37,3 +37,16 @@ export async function requireOwnedSession(
   }
   return session;
 }
+
+/** Ensure an open query belongs to the given session (agent / internal writers). */
+export async function requireQueryForSession(
+  ctx: DbCtx,
+  queryId: Id<"openQueries">,
+  sessionId: Id<"sessions">,
+): Promise<Doc<"openQueries">> {
+  const openQuery = await ctx.db.get(queryId);
+  if (!openQuery || openQuery.sessionId !== sessionId) {
+    throw new Error("Open query not found");
+  }
+  return openQuery;
+}

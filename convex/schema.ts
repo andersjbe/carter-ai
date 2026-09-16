@@ -66,10 +66,12 @@ export default defineSchema({
       v.literal("active"),
       v.literal("paused"),
     ),
+    /** 0 = never checked; used for fair cron ordering. */
     lastCheckedAt: v.optional(v.number()),
   })
     .index("by_session", ["sessionId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_status_and_last_checked", ["status", "lastCheckedAt"]),
 
   findings: defineTable({
     queryId: v.id("openQueries"),
@@ -103,6 +105,8 @@ export default defineSchema({
     userId: v.string(),
     name: v.string(),
     updatedAt: v.number(),
+    /** Denormalized count; maintained on add/remove. */
+    itemCount: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
@@ -133,9 +137,12 @@ export default defineSchema({
     listId: v.id("shoppingLists"),
     enabled: v.boolean(),
     email: v.optional(v.string()),
+    /** 0 = never emailed; used for fair cron ordering. */
     lastEmailedAt: v.optional(v.number()),
     agentInboxId: v.optional(v.string()),
-  }).index("by_list", ["listId"]),
+  })
+    .index("by_list", ["listId"])
+    .index("by_enabled_and_last_emailed", ["enabled", "lastEmailedAt"]),
 
   appConfig: defineTable({
     key: v.string(),

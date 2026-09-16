@@ -165,6 +165,7 @@ export const create = internalMutation({
           ? customDomains
           : undefined,
       status: args.status ?? "active",
+      lastCheckedAt: 0,
     });
   },
 });
@@ -205,9 +206,13 @@ export const listActive = internalQuery({
     }),
   ),
   handler: async (ctx) => {
+    // Oldest-checked first so cron work rotates fairly across queries.
     const rows = await ctx.db
       .query("openQueries")
-      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .withIndex("by_status_and_last_checked", (q) =>
+        q.eq("status", "active"),
+      )
+      .order("asc")
       .take(40);
     return rows.map((row) => ({
       _id: row._id,

@@ -5,7 +5,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { requireOwnedSession } from "./lib/sessionAuth";
+import { requireOwnedSession, requireQueryForSession } from "./lib/sessionAuth";
 
 const sourceValidator = v.union(
   v.literal("amazon"),
@@ -174,6 +174,8 @@ export const upsertFinding = internalMutation({
     created: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    await requireQueryForSession(ctx, args.queryId, args.sessionId);
+
     const fp = fingerprint(args.url, args.title);
     const existing = await ctx.db
       .query("findings")

@@ -22,32 +22,35 @@ async function deleteBySession(
 }
 
 async function deleteShoppingData(ctx: MutationCtx, userId: string) {
-  const lists = await ctx.db
-    .query("shoppingLists")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(200);
+  while (true) {
+    const lists = await ctx.db
+      .query("shoppingLists")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(100);
+    if (lists.length === 0) break;
 
-  for (const list of lists) {
-    const prefs = await ctx.db
-      .query("alertPrefs")
-      .withIndex("by_list", (q) => q.eq("listId", list._id))
-      .unique();
-    if (prefs) {
-      await ctx.db.delete(prefs._id);
-    }
-
-    while (true) {
-      const items = await ctx.db
-        .query("shoppingListItems")
+    for (const list of lists) {
+      const prefs = await ctx.db
+        .query("alertPrefs")
         .withIndex("by_list", (q) => q.eq("listId", list._id))
-        .take(100);
-      if (items.length === 0) break;
-      for (const item of items) {
-        await ctx.db.delete(item._id);
+        .unique();
+      if (prefs) {
+        await ctx.db.delete(prefs._id);
       }
-    }
 
-    await ctx.db.delete(list._id);
+      while (true) {
+        const items = await ctx.db
+          .query("shoppingListItems")
+          .withIndex("by_list", (q) => q.eq("listId", list._id))
+          .take(100);
+        if (items.length === 0) break;
+        for (const item of items) {
+          await ctx.db.delete(item._id);
+        }
+      }
+
+      await ctx.db.delete(list._id);
+    }
   }
 }
 
@@ -56,17 +59,22 @@ export const purgeUserData = internalMutation({
   args: { userId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const sessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .take(200);
+    while (true) {
+      const sessions = await ctx.db
+        .query("sessions")
+        .withIndex("by_user", (q) => q.eq("userId", args.userId))
+        .take(100);
+      if (sessions.length === 0) break;
 
-    for (const session of sessions) {
-      await deleteBySession(ctx, session._id);
-      if (typeof session.threadId === "string" && session.threadId.length > 0) {
-        await carterAgent.deleteThreadAsync(ctx, { threadId: session.threadId });
+      for (const session of sessions) {
+        await deleteBySession(ctx, session._id);
+        if (typeof session.threadId === "string" && session.threadId.length > 0) {
+          await carterAgent.deleteThreadAsync(ctx, {
+            threadId: session.threadId,
+          });
+        }
+        await ctx.db.delete(session._id);
       }
-      await ctx.db.delete(session._id);
     }
 
     await deleteShoppingData(ctx, args.userId);

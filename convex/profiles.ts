@@ -94,22 +94,25 @@ export const setEmail = mutation({
   returns: v.id("profiles"),
   handler: async (ctx, args) => {
     await requireOwnedSession(ctx, args.sessionId);
-    await requireVerifiedAuthEmail(ctx);
+    const auth = await requireVerifiedAuthEmail(ctx);
+    const authEmail = auth.email.trim().toLowerCase();
     const email = args.email.trim().toLowerCase();
-    if (!email.includes("@")) {
-      throw new Error("Enter a valid email address.");
+    if (email !== authEmail) {
+      throw new Error(
+        "Profile email must match your verified account email.",
+      );
     }
     const existing = await ctx.db
       .query("profiles")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { email });
+      await ctx.db.patch(existing._id, { email: authEmail });
       return existing._id;
     }
     const profileId = await ctx.db.insert("profiles", {
       sessionId: args.sessionId,
-      email,
+      email: authEmail,
     });
     await ctx.db.patch(args.sessionId, { profileId });
     return profileId;

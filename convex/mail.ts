@@ -146,12 +146,17 @@ export const setAlerts = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await requireOwnedList(ctx, args.listId);
-    const email = args.email?.trim().toLowerCase();
+
+    let email = args.email?.trim().toLowerCase();
     if (args.enabled) {
-      await requireVerifiedAuthEmail(ctx);
-      if (!email || !email.includes("@")) {
-        throw new Error("Email is required to enable alerts.");
+      const auth = await requireVerifiedAuthEmail(ctx);
+      const authEmail = auth.email.trim().toLowerCase();
+      if (email && email !== authEmail) {
+        throw new Error(
+          "Alerts can only be sent to your verified account email.",
+        );
       }
+      email = authEmail;
     }
 
     const existing = await ctx.db
@@ -163,12 +168,16 @@ export const setAlerts = mutation({
       await ctx.db.patch(existing._id, {
         enabled: args.enabled,
         email: email ?? existing.email,
+        ...(args.enabled && existing.lastEmailedAt === undefined
+          ? { lastEmailedAt: 0 }
+          : {}),
       });
     } else {
       await ctx.db.insert("alertPrefs", {
         listId: args.listId,
         enabled: args.enabled,
         email,
+        lastEmailedAt: 0,
       });
     }
 
@@ -266,11 +275,17 @@ export const getOrCreateAgentInbox = internalAction({
       username: `carter-${args.listId.slice(-8)}`,
     });
     await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
+    // Prefer the winner if another concurrent create claimed the slot.
+    const claimed: string | null = await ctx.runQuery(
+      internal.mail.getSharedInbox,
+      {},
+    );
+    const resolved = claimed ?? inboxId;
     await ctx.runMutation(internal.mail.saveInboxId, {
       listId: args.listId,
-      agentInboxId: inboxId,
+      agentInboxId: resolved,
     });
-    return inboxId;
+    return resolved;
   },
 });
 
@@ -294,14 +309,14 @@ export const setSharedInbox = internalMutation({
       .query("appConfig")
       .withIndex("by_key", (q) => q.eq("key", "agentmail_inbox_id"))
       .unique();
+    // First writer wins — avoid overwriting a concurrent create.
     if (existing) {
-      await ctx.db.patch(existing._id, { value: args.inboxId });
-    } else {
-      await ctx.db.insert("appConfig", {
-        key: "agentmail_inbox_id",
-        value: args.inboxId,
-      });
+      return null;
     }
+    await ctx.db.insert("appConfig", {
+      key: "agentmail_inbox_id",
+      value: args.inboxId,
+    });
     return null;
   },
 });
@@ -349,6 +364,11 @@ export const sendAuthEmail = internalAction({
           displayName: "Carter Auth",
         });
         await ctx.runMutation(internal.mail.setSharedInbox, { inboxId });
+        const claimed: string | null = await ctx.runQuery(
+          internal.mail.getSharedInbox,
+          {},
+        );
+        inboxId = claimed ?? inboxId;
       }
       await sendAgentMailMessage({
         inboxId,

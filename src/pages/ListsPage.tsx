@@ -19,7 +19,6 @@ export default function ListsPage() {
   const { data: authSession } = authClient.useSession();
   const [newListName, setNewListName] = useState("");
   const [listBusy, setListBusy] = useState(false);
-  const [email, setEmail] = useState("");
   const [alertBusy, setAlertBusy] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -76,7 +75,6 @@ export default function ListsPage() {
   }, [selectedList?.name, selectedListId]);
 
   useEffect(() => {
-    setEmail(alertPrefs?.email ?? "");
     if (alertPrefs?.enabled) setAlertsOpen(true);
   }, [alertPrefs, selectedListId]);
 
@@ -165,15 +163,13 @@ export default function ListsPage() {
 
   async function onSaveAlerts(event: FormEvent) {
     event.preventDefault();
-    if (!selectedListId) return;
-    const trimmed = email.trim();
-    if (!trimmed.includes("@")) return;
+    if (!selectedListId || !authSession?.user?.email) return;
     setAlertBusy(true);
     try {
       await setAlerts({
         listId: selectedListId,
         enabled: true,
-        email: trimmed,
+        email: authSession.user.email,
       });
     } finally {
       setAlertBusy(false);
@@ -187,7 +183,6 @@ export default function ListsPage() {
       await setAlerts({
         listId: selectedListId,
         enabled: false,
-        email: email.trim() || undefined,
       });
     } finally {
       setAlertBusy(false);
@@ -330,37 +325,35 @@ export default function ListsPage() {
                   </summary>
                   <div className="lists-alerts-body">
                     <p className="hint">
-                      Email when Carter spots a price drop on items in this
-                      list.
+                      Email your verified account address when Carter spots a
+                      price drop on items in this list.
                     </p>
                     {alertsOn ? (
                       <p className="alert-status" role="status">
-                        Alerts on for {alertPrefs?.email ?? "this list"}.
+                        Alerts on for{" "}
+                        {alertPrefs?.email ??
+                          authSession?.user?.email ??
+                          "this list"}
+                        .
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="alert-status" role="status">
+                        Sends to {authSession?.user?.email ?? "your account email"}
+                        .
+                      </p>
+                    )}
                     <form onSubmit={onSaveAlerts}>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="you@example.com"
-                        aria-label="Alert email"
-                        required
-                      />
                       <button
                         type="submit"
                         className="btn btn-ghost btn-compact"
                         disabled={
                           !selectedListId ||
                           alertBusy ||
-                          !email.trim().includes("@")
+                          !authSession?.user?.email ||
+                          alertsOn
                         }
                       >
-                        {alertBusy
-                          ? "Saving…"
-                          : alertsOn
-                            ? "Update email"
-                            : "Turn on"}
+                        {alertBusy ? "Saving…" : "Turn on"}
                       </button>
                     </form>
                     {alertsOn ? (

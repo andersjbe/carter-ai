@@ -10,6 +10,10 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireAuthUserId } from "./lib/sessionAuth";
 
+const MAX_LISTS_PER_USER = 50;
+const MAX_ITEMS_PER_LIST_READ = 100;
+const CRON_ALERT_BATCH = 40;
+
 const sourceValidator = v.union(
   v.literal("amazon"),
   v.literal("etsy"),
@@ -72,6 +76,37 @@ async function requireOwnedList(
   return list;
 }
 
+async function countItems(
+  ctx: MutationCtx,
+  listId: Id<"shoppingLists">,
+): Promise<number> {
+  const items = await ctx.db
+    .query("shoppingListItems")
+    .withIndex("by_list", (q) => q.eq("listId", listId))
+    .take(500);
+  return items.length;
+}
+
+async function bumpItemCount(
+  ctx: MutationCtx,
+  list: Doc<"shoppingLists">,
+  delta: number,
+) {
+  const now = Date.now();
+  if (list.itemCount === undefined) {
+    const counted = await countItems(ctx, list._id);
+    await ctx.db.patch(list._id, {
+      itemCount: Math.max(0, counted),
+      updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.patch(list._id, {
+    itemCount: Math.max(0, list.itemCount + delta),
+    updatedAt: now,
+  });
+}
+
 export const listMine = query({
   args: {},
   returns: v.array(listSummaryValidator),
@@ -81,22 +116,14 @@ export const listMine = query({
       .query("shoppingLists")
       .withIndex("by_user_updated", (q) => q.eq("userId", userId))
       .order("desc")
-      .collect();
+      .take(MAX_LISTS_PER_USER);
 
-    const result = [];
-    for (const list of lists) {
-      const items = await ctx.db
-        .query("shoppingListItems")
-        .withIndex("by_list", (q) => q.eq("listId", list._id))
-        .collect();
-      result.push({
-        _id: list._id,
-        name: list.name,
-        updatedAt: list.updatedAt,
-        itemCount: items.length,
-      });
-    }
-    return result;
+    return lists.map((list) => ({
+      _id: list._id,
+      name: list.name,
+      updatedAt: list.updatedAt,
+      itemCount: list.itemCount ?? 0,
+    }));
   },
 });
 
@@ -120,7 +147,7 @@ export const get = query({
     const items = await ctx.db
       .query("shoppingListItems")
       .withIndex("by_list", (q) => q.eq("listId", args.listId))
-      .collect();
+      .take(MAX_ITEMS_PER_LIST_READ);
     items.sort((a, b) => b.addedAt - a.addedAt);
     return {
       _id: list._id,
@@ -144,6 +171,7 @@ export const create = mutation({
       userId,
       name: name.slice(0, 120),
       updatedAt: Date.now(),
+      itemCount: 0,
     });
   },
 });
@@ -176,12 +204,15 @@ export const remove = mutation({
     const userId = await requireAuthUserId(ctx);
     await requireOwnedList(ctx, userId, args.listId);
 
-    const items = await ctx.db
-      .query("shoppingListItems")
-      .withIndex("by_list", (q) => q.eq("listId", args.listId))
-      .collect();
-    for (const item of items) {
-      await ctx.db.delete(item._id);
+    while (true) {
+      const items = await ctx.db
+        .query("shoppingListItems")
+        .withIndex("by_list", (q) => q.eq("listId", args.listId))
+        .take(100);
+      if (items.length === 0) break;
+      for (const item of items) {
+        await ctx.db.delete(item._id);
+      }
     }
 
     const prefs = await ctx.db
@@ -211,7 +242,7 @@ export const addItem = mutation({
   returns: v.id("shoppingListItems"),
   handler: async (ctx, args) => {
     const userId = await requireAuthUserId(ctx);
-    await requireOwnedList(ctx, userId, args.listId);
+    const list = await requireOwnedList(ctx, userId, args.listId);
 
     let title: string;
     let url: string;
@@ -274,7 +305,7 @@ export const addItem = mutation({
       fingerprint: fp,
       addedAt: Date.now(),
     });
-    await ctx.db.patch(args.listId, { updatedAt: Date.now() });
+    await bumpItemCount(ctx, list, 1);
     return itemId;
   },
 });
@@ -288,13 +319,16 @@ export const removeItem = mutation({
     if (!item || item.userId !== userId) {
       throw new Error("Item not found");
     }
+    const list = await ctx.db.get(item.listId);
     await ctx.db.delete(args.itemId);
-    await ctx.db.patch(item.listId, { updatedAt: Date.now() });
+    if (list) {
+      await bumpItemCount(ctx, list, -1);
+    }
     return null;
   },
 });
 
-/** Lists with alerts enabled (for price-drop digests). */
+/** Lists with alerts enabled, oldest-emailed first (for price-drop digests). */
 export const listAlertEnabled = internalQuery({
   args: {},
   returns: v.array(
@@ -306,7 +340,12 @@ export const listAlertEnabled = internalQuery({
     }),
   ),
   handler: async (ctx) => {
-    const prefs = await ctx.db.query("alertPrefs").take(100);
+    const prefs = await ctx.db
+      .query("alertPrefs")
+      .withIndex("by_enabled_and_last_emailed", (q) => q.eq("enabled", true))
+      .order("asc")
+      .take(CRON_ALERT_BATCH);
+
     const result: Array<{
       listId: Id<"shoppingLists">;
       name: string;
@@ -314,7 +353,7 @@ export const listAlertEnabled = internalQuery({
       lastEmailedAt: number | null;
     }> = [];
     for (const pref of prefs) {
-      if (!pref.enabled || !pref.email) continue;
+      if (!pref.email) continue;
       const list = await ctx.db.get(pref.listId);
       if (!list) continue;
       result.push({

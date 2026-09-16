@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-16T00:05:00Z
+- **Last updated:** 2026-09-16T00:20:00Z
 
 ## Log
 
@@ -90,3 +90,15 @@ Replaced open-web product search with marketplace discovery: `"web"` now means D
 
 ### 2026-09-16 - working tree
 Split product search into one Firecrawl pass per domain with `site:` bias so specialty stores (e.g. kingsize.com) keep SERP slots next to Amazon/Etsy; default limit scales with domain count (`convex/lib/searchScope.ts`, `convex/carterAgent.ts`, digests inherit via `resolveSearchScope`). Convex features: actions, agent tools, crons.
+
+### 2026-09-15 - f6207d9
+Committed AgentMail HTTP send for auth and digest mail, login resend-verification, and product-learning copy/UI from the working tree (`convex/mail.ts`, `convex/digests.ts`, `convex/auth.ts`, `src/pages/LoginPage.tsx`, `src/pages/ChatApp.tsx`). Convex features: actions, auth.
+
+### 2026-09-15 - a86ede9
+Added fade-in and press animations across chat, product cards, theme toggle, and Lists loading so UI transitions feel less abrupt (`src/index.css`, `src/pages/ChatApp.tsx`, `src/components/ProductCard.tsx`, `src/components/ThemeToggle.tsx`).
+
+### 2026-09-16 - 88fb1e0
+Committed Discover-stores marketplace search, chat store chips, MessageMarkdown, and per-domain Firecrawl `site:` passes from the working tree (`convex/firecrawl.ts`, `convex/lib/searchScope.ts`, `convex/carterAgent.ts`, `convex/openQueries.ts`, `src/pages/ChatApp.tsx`). Convex features: actions, agent tools, mutations, schema.
+
+### 2026-09-16 - working tree
+Hardened ownership and cron fairness: agent tools verify open-query session ownership, alerts/profile email lock to the verified account address, shopping lists use denormalized `itemCount` with bounded reads, and open-query/digest crons rotate via `lastCheckedAt` / `lastEmailedAt` indexes; AgentMail shared inbox create is first-writer-wins (`convex/lib/sessionAuth.ts`, `convex/carterAgent.ts`, `convex/mail.ts`, `convex/profiles.ts`, `convex/shoppingLists.ts`, `convex/openQueries.ts`, `convex/schema.ts`, `src/pages/ListsPage.tsx`). Convex features: schema, indexes, mutations, queries, actions, auth.

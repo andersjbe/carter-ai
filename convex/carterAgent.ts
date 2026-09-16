@@ -375,9 +375,16 @@ const scrapeProduct = createTool({
     source: string;
     imageUrl: string | null;
   }> => {
+    const queryId = args.queryId as Id<"openQueries">;
+    const openQuery = await ctx.runQuery(internal.openQueries.getInternal, {
+      queryId,
+    });
+    if (!openQuery || openQuery.sessionId !== ctx.sessionId) {
+      throw new Error("Open query not found");
+    }
     return await ctx.runAction(internal.firecrawl.scrapeProductPage, {
       sessionId: ctx.sessionId,
-      queryId: args.queryId as Id<"openQueries">,
+      queryId,
       url: args.url,
     });
   },
@@ -410,18 +417,24 @@ const listFindings = createTool({
     rejected: RejectedSummary[];
   }> => {
     if (args.queryId) {
+      const queryId = args.queryId as Id<"openQueries">;
+      const openQuery = await ctx.runQuery(internal.openQueries.getInternal, {
+        queryId,
+      });
+      if (!openQuery || openQuery.sessionId !== ctx.sessionId) {
+        throw new Error("Open query not found");
+      }
       return await ctx.runQuery(internal.findings.listByQueryInternal, {
-        queryId: args.queryId as Id<"openQueries">,
+        queryId,
       });
     }
-    const active = await ctx.runQuery(internal.openQueries.listActive, {});
-    const mine = active
-      .filter((q: { sessionId: Id<"sessions"> }) => q.sessionId === ctx.sessionId)
-      .slice(0, 5);
+    const mine = await ctx.runQuery(internal.openQueries.listActiveForSession, {
+      sessionId: ctx.sessionId,
+    });
     const findings: FindingForAgent[] = [];
     const rejected: RejectedSummary[] = [];
     const seenRejected = new Set<string>();
-    for (const q of mine) {
+    for (const q of mine.slice(0, 5)) {
       const bundle = await ctx.runQuery(internal.findings.listByQueryInternal, {
         queryId: q._id,
       });
