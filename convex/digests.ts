@@ -47,6 +47,12 @@ export const recheckOpenQueries = internalAction({
         query.sources as MarketplaceSource[] | null,
         query.customDomains,
       );
+      if (passes.length === 0) {
+        await ctx.runMutation(internal.openQueries.touchChecked, {
+          queryId: query._id,
+        });
+        continue;
+      }
       const limits = splitSearchLimit(RECHECK_SEARCH_LIMIT, passes.length);
 
       try {

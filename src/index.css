@@ -1457,12 +1457,48 @@ a.app-topbar-brand:hover {
 }
 
 .message .body {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.5;
   min-width: 0;
 }
+
+.message.user .body {
+  white-space: pre-wrap;
+}
+
+.message-md {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.message-md p {
+  margin: 0;
+}
+
+.message-md ul,
+.message-md ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.message-md li {
+  margin: 0;
+}
+
+.message-md a {
+  color: var(--accent-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-md strong {
+  font-weight: 700;
+}
+
 
 .message-streaming {
   display: inline-flex;
@@ -1524,6 +1560,17 @@ a.app-topbar-brand:hover {
 
 .reply-choice-chips {
   gap: 0.4rem;
+}
+
+.marketplace-store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.query-discover-hint {
+  margin: 0.45rem 0 0;
 }
 
 button.chip-reply {

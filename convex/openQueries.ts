@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import { requireOwnedSession } from "./lib/sessionAuth";
 import {
+  MAX_CUSTOM_DOMAINS,
   normalizeCustomDomains,
   type MarketplaceSource,
 } from "./lib/searchScope";
@@ -83,6 +84,56 @@ export const updateSearchScope = mutation({
       customDomains: customDomains.length > 0 ? customDomains : undefined,
     });
     return null;
+  },
+});
+
+/** Append specialty domains from store chips without changing marketplace toggles. */
+export const addCustomDomains = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    queryId: v.id("openQueries"),
+    domains: v.array(v.string()),
+  },
+  returns: v.object({
+    sources: v.array(sourceValidator),
+    customDomains: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    await requireOwnedSession(ctx, args.sessionId);
+    const queryDoc = await ctx.db.get(args.queryId);
+    if (!queryDoc || queryDoc.sessionId !== args.sessionId) {
+      throw new Error("Unauthorized");
+    }
+
+    const sources = dedupeSources(
+      (queryDoc.sources as MarketplaceSource[] | undefined) ?? [
+        "amazon",
+        "etsy",
+        "web",
+      ],
+    );
+    const existing = queryDoc.customDomains ?? [];
+    const incoming = normalizeCustomDomains(args.domains);
+    const seen = new Set(existing);
+    const merged = [...existing];
+    for (const host of incoming) {
+      if (seen.has(host)) continue;
+      if (merged.length >= MAX_CUSTOM_DOMAINS) break;
+      seen.add(host);
+      merged.push(host);
+    }
+
+    if (sources.length === 0 && merged.length === 0) {
+      throw new Error(
+        "Select at least one marketplace or add a custom domain",
+      );
+    }
+
+    await ctx.db.patch(args.queryId, {
+      sources,
+      customDomains: merged.length > 0 ? merged : undefined,
+    });
+    return { sources, customDomains: merged };
   },
 });
 
@@ -171,6 +222,47 @@ export const listActive = internalQuery({
   },
 });
 
+export const listActiveForSession = internalQuery({
+  args: { sessionId: v.id("sessions") },
+  returns: v.array(
+    v.object({
+      _id: v.id("openQueries"),
+      title: v.string(),
+      brief: v.string(),
+      status: statusValidator,
+      customDomains: v.union(v.array(v.string()), v.null()),
+      storeDiscoveryOfferedAt: v.union(v.number(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("openQueries")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .take(40);
+    return rows
+      .filter((row) => row.status === "active")
+      .map((row) => ({
+        _id: row._id,
+        title: row.title,
+        brief: row.brief,
+        status: row.status,
+        customDomains: row.customDomains ?? null,
+        storeDiscoveryOfferedAt: row.storeDiscoveryOfferedAt ?? null,
+      }));
+  },
+});
+
+export const markStoreDiscoveryOffered = internalMutation({
+  args: { queryId: v.id("openQueries") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.queryId, {
+      storeDiscoveryOfferedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
 export const getInternal = internalQuery({
   args: { queryId: v.id("openQueries") },
   returns: v.union(
@@ -182,6 +274,7 @@ export const getInternal = internalQuery({
       searchHints: v.union(v.array(v.string()), v.null()),
       sources: v.union(v.array(sourceValidator), v.null()),
       customDomains: v.union(v.array(v.string()), v.null()),
+      storeDiscoveryOfferedAt: v.union(v.number(), v.null()),
       status: statusValidator,
     }),
     v.null(),
@@ -197,6 +290,7 @@ export const getInternal = internalQuery({
       searchHints: row.searchHints ?? null,
       sources: row.sources ?? null,
       customDomains: row.customDomains ?? null,
+      storeDiscoveryOfferedAt: row.storeDiscoveryOfferedAt ?? null,
       status: row.status,
     };
   },

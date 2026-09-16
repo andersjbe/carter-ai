@@ -12,7 +12,7 @@ const FEATURES = [
   {
     icon: IconSites,
     title: "Choose your sites",
-    body: "Toggle Amazon, Etsy, and the open web, or add stores you trust — set defaults in Profile, or per query while you shop.",
+    body: "Toggle Amazon and Etsy, turn on Discover stores for specialty-site suggestions, or add shops you trust — set defaults in Profile, or per query while you shop.",
   },
   {
     icon: IconList,

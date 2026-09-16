@@ -2,7 +2,7 @@
 
 - **Project:** Carter
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy/web (and user-chosen sites) via Firecrawl, lets shoppers like or pass findings, save buy-intent products to shopping lists, and emails list price-drop digests through AgentMail.
+- **What it does:** Curious ChatGPT shopping agent that learns preferences, searches Amazon/Etsy and user-chosen specialty stores via Firecrawl (with Discover stores suggesting domains as chips), lets shoppers like or pass findings, save buy-intent products to shopping lists, and emails list price-drop digests through AgentMail.
 - **Live app:** not deployed
 - **Repo:** https://github.com/andersjbe/carter-ai
 - **Frontend:** Convex static hosting
@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-15T22:41:02Z
+- **Last updated:** 2026-09-16T00:05:00Z
 
 ## Log
 
@@ -84,3 +84,9 @@ Committed the Better Auth production hardening from the working tree: Google OAu
 
 ### 2026-09-15 - working tree
 Telegraphed like/pass learning under chat product grids, refreshed landing copy for per-site search, and fixed AgentMail auth/digest delivery by calling AgentMail’s HTTP API from parent actions (component create/send cannot see `AGENTMAIL_API_KEY`), plus a resend-verification control on login (`src/pages/ChatApp.tsx`, `src/index.css`, `src/pages/LandingPage.tsx`, `convex/mail.ts`, `convex/digests.ts`, `convex/auth.ts`, `convex/convex.config.ts`, `src/pages/LoginPage.tsx`). Convex features: actions, auth, typed env.
+
+### 2026-09-15 - working tree
+Replaced open-web product search with marketplace discovery: `"web"` now means Discover stores, `resolveSearchScope` only searches Amazon/Etsy/custom domains, Firecrawl `discoverMarketplaces` suggests specialty hosts, and chat store chips add confirmed domains before product search (`convex/lib/searchScope.ts`, `convex/firecrawl.ts`, `convex/carterAgent.ts`, `convex/digests.ts`, `src/pages/ChatApp.tsx`, `src/components/SearchScopeEditor.tsx`, `src/pages/LandingPage.tsx`). Convex features: actions, agent tools, mutations.
+
+### 2026-09-16 - working tree
+Split product search into one Firecrawl pass per domain with `site:` bias so specialty stores (e.g. kingsize.com) keep SERP slots next to Amazon/Etsy; default limit scales with domain count (`convex/lib/searchScope.ts`, `convex/carterAgent.ts`, digests inherit via `resolveSearchScope`). Convex features: actions, agent tools, crons.

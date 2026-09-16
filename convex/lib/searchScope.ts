@@ -5,9 +5,9 @@ export type MarketplaceSource = "amazon" | "etsy" | "web";
 export const MAX_CUSTOM_DOMAINS = 8;
 
 export type SearchPass = {
-  /** Hostnames for Firecrawl includeDomains; omit for open web. */
-  includeDomains?: string[];
-  /** Optional site: bias when a single marketplace domain is used. */
+  /** Hostnames for Firecrawl includeDomains (required for product search). */
+  includeDomains: string[];
+  /** site: bias — always set for per-domain passes. */
   siteBias?: string;
 };
 
@@ -72,10 +72,11 @@ function marketplaceDomains(
 }
 
 /**
- * Resolve stored sources + custom domains into one or two Firecrawl search passes.
- * - No restricted domains → single open search
- * - Restricted only → one includeDomains search (siteBias when exactly one domain)
- * - Restricted + web → restricted pass + open pass
+ * Resolve stored sources + custom domains into Firecrawl product-search passes.
+ * - `"web"` does not open unrestricted search; it only means store discovery is allowed.
+ * - One pass per host (Amazon / Etsy / each custom domain) with site: bias so
+ *   smaller specialty stores are not drowned out by large marketplaces.
+ * - Zero product hosts → empty array (caller should not search open web).
  */
 export function resolveSearchScope(
   sources: MarketplaceSource[] | null | undefined,
@@ -87,7 +88,6 @@ export function resolveSearchScope(
       ? ["amazon", "etsy", "web"]
       : sources;
   const custom = customDomains ?? [];
-  const wantOpenWeb = src.includes("web");
   const restricted = [...marketplaceDomains(src), ...custom];
 
   // Dedupe restricted hosts while preserving order
@@ -99,38 +99,39 @@ export function resolveSearchScope(
     domains.push(d);
   }
 
-  if (domains.length === 0) {
-    return [{}];
-  }
-
-  const restrictedPass: SearchPass = {
-    includeDomains: domains,
-    siteBias: domains.length === 1 ? domains[0] : undefined,
-  };
-
-  if (wantOpenWeb) {
-    return [restrictedPass, {}];
-  }
-  return [restrictedPass];
+  return domains.map((domain) => ({
+    includeDomains: [domain],
+    siteBias: domain,
+  }));
 }
 
-/** Split a total result limit across N search passes (ceil for first). */
+/**
+ * Split a total result limit across N search passes.
+ * Each pass gets at least 1 when possible; remainder is spread round-robin.
+ */
 export function splitSearchLimit(
   total: number | undefined,
   passCount: number,
 ): number[] {
   const n = Math.max(1, passCount);
-  const base = total ?? 6;
+  const base = Math.max(1, total ?? 6);
   if (n === 1) return [base];
-  const first = Math.ceil(base / n);
-  const rest = Math.max(1, Math.floor(base / n));
-  const limits: number[] = [first];
-  for (let i = 1; i < n; i++) limits.push(rest);
+
+  const limits = Array.from({ length: n }, () => 1);
+  let remaining = Math.max(0, base - n);
+  let i = 0;
+  while (remaining > 0) {
+    limits[i % n]! += 1;
+    remaining -= 1;
+    i += 1;
+  }
   return limits;
 }
 
 /** Apply optional site: bias to a search query string. */
 export function applySiteBias(query: string, siteBias?: string): string {
   if (!siteBias) return query;
-  return `${query} site:${siteBias}`;
+  const needle = `site:${siteBias}`;
+  if (query.toLowerCase().includes(needle.toLowerCase())) return query;
+  return `${query} ${needle}`;
 }

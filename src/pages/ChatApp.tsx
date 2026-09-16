@@ -28,6 +28,7 @@ import {
   IconTrash,
   IconX,
 } from "../components/icons";
+import { MessageMarkdown } from "../components/MessageMarkdown";
 import { MAX_SESSION_TITLE_LENGTH } from "../../convex/lib/sessionTitle";
 
 const CONTEXT_PANEL_KEY = "carter.contextPanelOpen";
@@ -348,6 +349,64 @@ function extractReplyChoicesFromMessage(message: UIMessage): ReplyQuestion[] {
   return Array.from(byId.values());
 }
 
+type MarketplaceSuggestion = { domain: string; label: string };
+
+type MarketplaceSuggestionBundle = {
+  queryId: Id<"openQueries">;
+  suggestions: MarketplaceSuggestion[];
+};
+
+function asMarketplaceSuggestion(value: unknown): MarketplaceSuggestion | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const domain = typeof row.domain === "string" ? row.domain.trim().toLowerCase() : "";
+  const label = typeof row.label === "string" ? row.label.trim() : "";
+  if (!domain) return null;
+  return { domain, label: label || domain };
+}
+
+function marketplaceSuggestionsFromToolOutput(
+  output: unknown,
+): MarketplaceSuggestionBundle | null {
+  if (!output || typeof output !== "object") return null;
+  const record = output as Record<string, unknown>;
+  const queryId =
+    typeof record.queryId === "string" ? record.queryId.trim() : "";
+  if (!queryId || !Array.isArray(record.suggestions)) return null;
+  const suggestions: MarketplaceSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const item of record.suggestions) {
+    const suggestion = asMarketplaceSuggestion(item);
+    if (!suggestion || seen.has(suggestion.domain)) continue;
+    seen.add(suggestion.domain);
+    suggestions.push(suggestion);
+  }
+  if (suggestions.length === 0) return null;
+  return {
+    queryId: queryId as Id<"openQueries">,
+    suggestions,
+  };
+}
+
+function extractMarketplaceSuggestionsFromMessage(
+  message: UIMessage,
+): MarketplaceSuggestionBundle | null {
+  if (message.role !== "assistant" || !Array.isArray(message.parts)) {
+    return null;
+  }
+
+  let latest: MarketplaceSuggestionBundle | null = null;
+  for (const part of message.parts as Array<Record<string, unknown>>) {
+    if (toolNameFromPart(part) !== "discoverMarketplaces") continue;
+    if (part.state !== "output-available" && part.state !== "result") continue;
+    const bundle = marketplaceSuggestionsFromToolOutput(
+      part.output ?? part.result,
+    );
+    if (bundle) latest = bundle;
+  }
+  return latest;
+}
+
 function buildDraftFromReplySelections(
   questions: ReplyQuestion[],
   selections: Record<string, ReplySelection>,
@@ -435,6 +494,74 @@ function ReplyChoices({
   );
 }
 
+function MarketplaceStoreChips({
+  bundle,
+  selectedDomains,
+  interactive,
+  busy,
+  onToggleDomain,
+  onAdd,
+  onSkip,
+}: {
+  bundle: MarketplaceSuggestionBundle;
+  selectedDomains: string[];
+  interactive: boolean;
+  busy: boolean;
+  onToggleDomain: (domain: string) => void;
+  onAdd: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="reply-choices marketplace-store-chips" aria-label="Suggested stores">
+      <div className="reply-choice-question">
+        <div className="reply-choice-prompt">Stores to add</div>
+        <div
+          className="chips reply-choice-chips"
+          role="group"
+          aria-label="Specialty stores (select all that apply)"
+        >
+          {bundle.suggestions.map((suggestion) => {
+            const isSelected = selectedDomains.includes(suggestion.domain);
+            return (
+              <button
+                key={suggestion.domain}
+                type="button"
+                className={`chip chip-reply${isSelected ? " is-selected" : ""}`}
+                disabled={!interactive || busy}
+                aria-pressed={isSelected}
+                title={suggestion.domain}
+                onClick={() => onToggleDomain(suggestion.domain)}
+              >
+                {suggestion.domain}
+              </button>
+            );
+          })}
+        </div>
+        {interactive ? (
+          <div className="marketplace-store-actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-compact"
+              disabled={busy || selectedDomains.length === 0}
+              onClick={onAdd}
+            >
+              {busy ? "Adding…" : "Add selected stores"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-compact"
+              disabled={busy}
+              onClick={onSkip}
+            >
+              Skip
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   findingsByUrl,
@@ -442,6 +569,12 @@ function MessageBubble({
   replyInteractive,
   replySelections,
   onToggleReply,
+  storeInteractive,
+  selectedStoreDomains,
+  storeBusy,
+  onToggleStoreDomain,
+  onAddStores,
+  onSkipStores,
   onSetVerdict,
   shoppingLists,
   onAddToList,
@@ -453,6 +586,12 @@ function MessageBubble({
   replyInteractive: boolean;
   replySelections: Record<string, ReplySelection>;
   onToggleReply: (question: ReplyQuestion, option: string | null) => void;
+  storeInteractive: boolean;
+  selectedStoreDomains: string[];
+  storeBusy: boolean;
+  onToggleStoreDomain: (domain: string) => void;
+  onAddStores: () => void;
+  onSkipStores: () => void;
   onSetVerdict: (
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
@@ -473,8 +612,12 @@ function MessageBubble({
     [message, findingsByUrl, rejectedUrls],
   );
   const replyChoices = useMemo(
-    () => (replyInteractive ? extractReplyChoicesFromMessage(message) : []),
-    [message, replyInteractive],
+    () => extractReplyChoicesFromMessage(message),
+    [message],
+  );
+  const marketplaceBundle = useMemo(
+    () => extractMarketplaceSuggestionsFromMessage(message),
+    [message],
   );
 
   return (
@@ -485,7 +628,11 @@ function MessageBubble({
       <div className="meta">{role === "user" ? "You" : "Carter"}</div>
       <div className="body">
         {text ? (
-          text
+          role === "assistant" ? (
+            <MessageMarkdown text={text} />
+          ) : (
+            text
+          )
         ) : message.status === "streaming" ? (
           <span className="message-streaming" aria-label="Carter is thinking">
             <span />
@@ -520,6 +667,19 @@ function MessageBubble({
           selections={replySelections}
           interactive={replyInteractive}
           onToggle={onToggleReply}
+        />
+      ) : null}
+      {marketplaceBundle ? (
+        <MarketplaceStoreChips
+          bundle={marketplaceBundle}
+          selectedDomains={
+            storeInteractive ? selectedStoreDomains : []
+          }
+          interactive={storeInteractive}
+          busy={storeBusy}
+          onToggleDomain={onToggleStoreDomain}
+          onAdd={onAddStores}
+          onSkip={onSkipStores}
         />
       ) : null}
     </article>
@@ -646,6 +806,12 @@ function OpenQueryCard({
           onUpdateScope(query._id, nextSources, nextDomains)
         }
       />
+      {sources.includes("web") ? (
+        <p className="hint query-discover-hint">
+          Carter can suggest specialty sites as chips when Discover stores is
+          on.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1084,6 +1250,34 @@ export default function ChatApp() {
     return null;
   }, [messages]);
 
+  const interactiveStoreMessageKey = useMemo(() => {
+    const list = messages ?? [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const message = list[i];
+      if (!message) continue;
+      if (message.role !== "assistant") {
+        // A newer user turn means store chips on older messages are done.
+        return null;
+      }
+      if (extractMarketplaceSuggestionsFromMessage(message)) {
+        return message.key;
+      }
+      // Latest assistant turn has no store suggestions.
+      return null;
+    }
+    return null;
+  }, [messages]);
+
+  const interactiveStoreBundle = useMemo(() => {
+    if (!interactiveStoreMessageKey) return null;
+    const message = (messages ?? []).find(
+      (row) => row.key === interactiveStoreMessageKey,
+    );
+    return message
+      ? extractMarketplaceSuggestionsFromMessage(message)
+      : null;
+  }, [messages, interactiveStoreMessageKey]);
+
   const interactiveReplyQuestions = useMemo(() => {
     if (!interactiveReplyMessageKey) return [] as ReplyQuestion[];
     const message = (messages ?? []).find(
@@ -1091,6 +1285,16 @@ export default function ChatApp() {
     );
     return message ? extractReplyChoicesFromMessage(message) : [];
   }, [messages, interactiveReplyMessageKey]);
+
+  const [selectedStoreDomains, setSelectedStoreDomains] = useState<string[]>(
+    [],
+  );
+  const [storeActionBusy, setStoreActionBusy] = useState(false);
+
+  useEffect(() => {
+    setSelectedStoreDomains([]);
+    setStoreActionBusy(false);
+  }, [interactiveStoreMessageKey]);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -1184,6 +1388,7 @@ export default function ChatApp() {
   const createList = useMutation(api.shoppingLists.create);
   const addListItem = useMutation(api.shoppingLists.addItem);
   const updateSearchScope = useMutation(api.openQueries.updateSearchScope);
+  const addCustomDomains = useMutation(api.openQueries.addCustomDomains);
 
   async function onSetVerdict(
     findingId: Id<"findings">,
@@ -1248,6 +1453,68 @@ export default function ChatApp() {
     } finally {
       setSending(false);
     }
+  }
+
+  function onToggleStoreDomain(domain: string) {
+    setSelectedStoreDomains((current) =>
+      current.includes(domain)
+        ? current.filter((item) => item !== domain)
+        : [...current, domain],
+    );
+  }
+
+  async function sendStoreFollowUp(prompt: string) {
+    if (!sessionId || !threadId || sending || storeActionBusy) return;
+    setStoreActionBusy(true);
+    setSending(true);
+    stickToBottomRef.current = true;
+    setDraft("");
+    setReplySelections({});
+    setSelectedStoreDomains([]);
+    try {
+      await sendMessage({ sessionId, threadId, prompt });
+    } finally {
+      setSending(false);
+      setStoreActionBusy(false);
+    }
+  }
+
+  async function onAddStores() {
+    if (
+      !sessionId ||
+      !threadId ||
+      !interactiveStoreBundle ||
+      selectedStoreDomains.length === 0 ||
+      sending ||
+      storeActionBusy
+    ) {
+      return;
+    }
+    const prompt = `Added stores: ${selectedStoreDomains.join(", ")} — please search those.`;
+    setStoreActionBusy(true);
+    setSending(true);
+    stickToBottomRef.current = true;
+    setDraft("");
+    setReplySelections({});
+    setSelectedStoreDomains([]);
+    try {
+      // Server merges onto existing sources/domains so Profile defaults are kept.
+      await addCustomDomains({
+        sessionId,
+        queryId: interactiveStoreBundle.queryId,
+        domains: selectedStoreDomains,
+      });
+      await sendMessage({ sessionId, threadId, prompt });
+    } finally {
+      setSending(false);
+      setStoreActionBusy(false);
+    }
+  }
+
+  async function onSkipStores() {
+    await sendStoreFollowUp(
+      "Skip extra stores — search with my current sources.",
+    );
   }
 
   const prefChips = useMemo(() => {
@@ -1722,6 +1989,14 @@ export default function ChatApp() {
                     }
                     replySelections={replySelections}
                     onToggleReply={onToggleReply}
+                    storeInteractive={
+                      message.key === interactiveStoreMessageKey
+                    }
+                    selectedStoreDomains={selectedStoreDomains}
+                    storeBusy={storeActionBusy}
+                    onToggleStoreDomain={onToggleStoreDomain}
+                    onAddStores={() => void onAddStores()}
+                    onSkipStores={() => void onSkipStores()}
                     onSetVerdict={onSetVerdict}
                     shoppingLists={shoppingLists ?? undefined}
                     onAddToList={onAddToList}

@@ -3,6 +3,7 @@ import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { normalizeHostname } from "./lib/searchScope";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
 
@@ -61,7 +62,7 @@ function isProductPageUrl(url: string): boolean {
     return false;
   }
 
-  const host = parsed.hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
   const path = parsed.pathname.toLowerCase();
   const params = parsed.searchParams;
 
@@ -82,8 +83,71 @@ function isProductPageUrl(url: string): boolean {
     return /\/listing\/\d+/i.test(path);
   }
 
-  // Other web: allow unless the path/query clearly looks like a search page.
+  // Best Buy PDPs are typically /site/.../<sku>.p?skuId=...
+  if (host === "bestbuy.com" || host.endsWith(".bestbuy.com")) {
+    if (
+      path.includes("/international") ||
+      path.includes("/site/shop/") ||
+      path.includes("/site/cl/") ||
+      path.includes("/site/electronicshome") ||
+      /\/site\/[^/]+\/?$/.test(path)
+    ) {
+      return false;
+    }
+    return (
+      /\.p\/?$/i.test(path) ||
+      params.has("skuId") ||
+      /\/sku\/\d+/i.test(path)
+    );
+  }
+
+  // Generic browse / list / marketing paths — never treat as a PDP.
+  const segments = path.split("/").filter(Boolean);
+  const blockedSegment = segments.some((seg) =>
+    [
+      "search",
+      "sch",
+      "category",
+      "categories",
+      "collection",
+      "collections",
+      "browse",
+      "brands",
+      "shop",
+      "stores",
+      "department",
+      "departments",
+      "deals",
+      "sale",
+      "sales",
+      "promo",
+      "promotions",
+      "gift-guide",
+      "gift-guides",
+      "top-rated",
+      "best-of",
+      "best-sellers",
+      "wishlist",
+      "cart",
+      "account",
+      "login",
+      "signin",
+      "help",
+      "support",
+      "blog",
+      "article",
+      "articles",
+      "news",
+      "about",
+      "country",
+      "locale",
+      "international",
+      "store-locator",
+    ].includes(seg),
+  );
+
   if (
+    path === "/" ||
     path === "/s" ||
     path.startsWith("/s/") ||
     path.includes("/search") ||
@@ -91,24 +155,66 @@ function isProductPageUrl(url: string): boolean {
     path.startsWith("/slp/") ||
     path.startsWith("/c/") ||
     path.startsWith("/market/") ||
+    path.includes("/brand/") ||
+    blockedSegment ||
     params.has("q") ||
     params.has("k") ||
     params.has("query") ||
     params.has("keyword") ||
-    params.has("keywords")
+    params.has("keywords") ||
+    params.has("search") ||
+    params.has("searchTerm")
   ) {
     return false;
   }
 
-  return true;
+  // Prefer paths that look like a concrete product detail page.
+  const productish =
+    /\/product[s]?\//i.test(path) ||
+    /\/p\//i.test(path) ||
+    /\/ip\//i.test(path) ||
+    /\/item[s]?\//i.test(path) ||
+    /\/sku\//i.test(path) ||
+    /\/listing\//i.test(path) ||
+    /\/dp\//i.test(path) ||
+    /\/pd\//i.test(path) ||
+    /\/goods\//i.test(path) ||
+    /\.p\/?$/i.test(path) ||
+    params.has("skuId") ||
+    params.has("sku") ||
+    params.has("productId") ||
+    params.has("product_id") ||
+    params.has("asin");
+
+  return productish;
 }
 
+/**
+ * Extract a plausible product price from text. Prefer `$12.99`-style amounts;
+ * ignore bare integers and promo/date noise.
+ */
 function parsePrice(text: string | undefined): number | undefined {
   if (!text) return undefined;
-  const match = text.replace(/,/g, "").match(/\$?\s*(\d+(?:\.\d{1,2})?)/);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : undefined;
+  const cleaned = text.replace(/,/g, " ");
+
+  const withSymbol = cleaned.match(/\$\s*(\d{1,5}(?:\.\d{1,2})?)/);
+  if (withSymbol) {
+    const value = Number(withSymbol[1]);
+    if (Number.isFinite(value) && value >= 1 && value <= 100_000) {
+      return value;
+    }
+  }
+
+  // Without a currency marker, only accept clear decimal money amounts.
+  const decimal = cleaned.match(/(?:^|[^\d.])(\d{1,5}\.\d{2})(?:[^\d.]|$)/);
+  if (decimal) {
+    const value = Number(decimal[1]);
+    if (Number.isFinite(value) && value >= 1 && value <= 100_000) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function asHttpUrl(value: unknown): string | undefined {
@@ -432,9 +538,8 @@ export const searchAndStore = internalAction({
   }),
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 6, 10);
-    // Small buffer so product-URL filtering still fills `limit` without
-    // doubling billed search results.
-    const fetchLimit = Math.min(limit + 2, 10);
+    // Larger buffer now that PDP filtering is stricter for custom domains.
+    const fetchLimit = Math.min(limit + 6, 14);
     const shouldEnrich = args.enrichNew !== false;
 
     // Search only — no scrapeOptions (avoids +1 credit per result).
@@ -651,5 +756,91 @@ export const scrapePriceOnly = internalAction({
       console.error("Price scrape failed", args.url, error);
       return { title: null, price: null, currency: null };
     }
+  },
+});
+
+const MARKETPLACE_DENY_HOSTS = [
+  "facebook.com",
+  "fb.com",
+  "pinterest.com",
+  "pin.it",
+  "reddit.com",
+  "youtube.com",
+  "youtu.be",
+  "instagram.com",
+  "tiktok.com",
+  "twitter.com",
+  "x.com",
+  "wikipedia.org",
+  "medium.com",
+  "linkedin.com",
+  "quora.com",
+  "threads.net",
+  "google.com",
+  "bing.com",
+  "yahoo.com",
+  "duckduckgo.com",
+];
+
+const BUILTIN_MARKETPLACES = new Set(["amazon.com", "etsy.com"]);
+
+function isDeniedMarketplaceHost(host: string): boolean {
+  return MARKETPLACE_DENY_HOSTS.some(
+    (denied) => host === denied || host.endsWith(`.${denied}`),
+  );
+}
+
+const marketplaceSuggestionValidator = v.object({
+  domain: v.string(),
+  label: v.string(),
+});
+
+/** Metadata-only search for specialty store domains (not product pages). */
+export const discoverMarketplaces = internalAction({
+  args: {
+    topic: v.string(),
+    excludeDomains: v.optional(v.array(v.string())),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    suggestions: v.array(marketplaceSuggestionValidator),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 5, 1), 5);
+    const topic = args.topic.trim().slice(0, 120) || "gifts";
+    const exclude = new Set(
+      (args.excludeDomains ?? [])
+        .map((d) => normalizeHostname(d))
+        .filter((d): d is string => d != null),
+    );
+    for (const builtin of BUILTIN_MARKETPLACES) {
+      exclude.add(builtin);
+    }
+
+    const searchQuery = `best online stores to buy ${topic} specialty retailers`;
+    const response = await firecrawl.search(ctx, searchQuery, {
+      limit: Math.min(limit + 6, 12),
+    });
+    const hits = extractSearchHits(response);
+    const suggestions: Array<{ domain: string; label: string }> = [];
+    const seen = new Set<string>();
+
+    for (const hit of hits) {
+      if (suggestions.length >= limit) break;
+      const url = String(hit.url ?? hit.sourceURL ?? "").trim();
+      if (!url) continue;
+      const domain = normalizeHostname(url);
+      if (!domain) continue;
+      if (seen.has(domain) || exclude.has(domain)) continue;
+      if (isDeniedMarketplaceHost(domain)) continue;
+      if (BUILTIN_MARKETPLACES.has(domain)) continue;
+
+      seen.add(domain);
+      const rawTitle = String(hit.title ?? "").trim();
+      const label = (rawTitle || domain).slice(0, 80);
+      suggestions.push({ domain, label });
+    }
+
+    return { suggestions };
   },
 });

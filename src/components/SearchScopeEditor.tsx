@@ -12,7 +12,7 @@ const MARKETPLACE_OPTIONS: Array<{
 }> = [
   { id: "amazon", label: "Amazon" },
   { id: "etsy", label: "Etsy" },
-  { id: "web", label: "Open web" },
+  { id: "web", label: "Discover stores" },
 ];
 
 export function SearchScopeEditor({

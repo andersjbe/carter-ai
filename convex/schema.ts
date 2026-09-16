@@ -59,6 +59,8 @@ export default defineSchema({
     ),
     /** Extra hostnames to include in Firecrawl search (e.g. wayfair.com). */
     customDomains: v.optional(v.array(v.string())),
+    /** Set when discoverMarketplaces has already been offered for this query. */
+    storeDiscoveryOfferedAt: v.optional(v.number()),
     status: v.union(
       v.literal("gathering"),
       v.literal("active"),
