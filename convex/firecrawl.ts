@@ -3,6 +3,7 @@ import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { sanitizePrice } from "./lib/productPrice";
 import { normalizeHostname } from "./lib/searchScope";
 
 const firecrawl = new FirecrawlClient(components.firecrawl);
@@ -191,7 +192,7 @@ function isProductPageUrl(url: string): boolean {
 
 /**
  * Extract a plausible product price from text. Prefer `$12.99`-style amounts;
- * ignore bare integers and promo/date noise.
+ * ignore bare integers and promo/date noise. Floor is $5 via sanitizePrice.
  */
 function parsePrice(text: string | undefined): number | undefined {
   if (!text) return undefined;
@@ -199,19 +200,13 @@ function parsePrice(text: string | undefined): number | undefined {
 
   const withSymbol = cleaned.match(/\$\s*(\d{1,5}(?:\.\d{1,2})?)/);
   if (withSymbol) {
-    const value = Number(withSymbol[1]);
-    if (Number.isFinite(value) && value >= 1 && value <= 100_000) {
-      return value;
-    }
+    return sanitizePrice(Number(withSymbol[1]));
   }
 
   // Without a currency marker, only accept clear decimal money amounts.
   const decimal = cleaned.match(/(?:^|[^\d.])(\d{1,5}\.\d{2})(?:[^\d.]|$)/);
   if (decimal) {
-    const value = Number(decimal[1]);
-    if (Number.isFinite(value) && value >= 1 && value <= 100_000) {
-      return value;
-    }
+    return sanitizePrice(Number(decimal[1]));
   }
 
   return undefined;
@@ -364,13 +359,13 @@ function priceFromProduct(product: unknown): number | undefined {
     price?: unknown;
     variants?: unknown;
   };
-  if (typeof root.price === "number") return root.price;
+  if (typeof root.price === "number") return sanitizePrice(root.price);
   if (typeof root.price === "string") return parsePrice(root.price);
   if (!Array.isArray(root.variants) || root.variants.length === 0) {
     return undefined;
   }
   const variant = root.variants[0] as { price?: unknown };
-  if (typeof variant.price === "number") return variant.price;
+  if (typeof variant.price === "number") return sanitizePrice(variant.price);
   if (typeof variant.price === "string") return parsePrice(variant.price);
   return undefined;
 }
@@ -602,12 +597,13 @@ export const searchAndStore = internalAction({
             if (free) {
               if (free.title) title = free.title;
               if (free.summary) summary = free.summary;
-              if (free.price !== undefined) {
-                price = free.price;
+              const sanitized = sanitizePrice(free.price);
+              if (sanitized !== undefined) {
+                price = sanitized;
                 currency = "USD";
               }
               if (free.imageUrl) imageUrl = free.imageUrl;
-              enriched = free.price !== undefined || Boolean(free.imageUrl);
+              enriched = sanitized !== undefined || Boolean(free.imageUrl);
             }
           }
 
@@ -621,8 +617,11 @@ export const searchAndStore = internalAction({
               title = detail.title || title;
               summary = detail.summary ?? summary;
               if (detail.price != null) {
-                price = detail.price;
-                currency = detail.currency ?? "USD";
+                const sanitized = sanitizePrice(detail.price);
+                if (sanitized !== undefined) {
+                  price = sanitized;
+                  currency = detail.currency ?? "USD";
+                }
               }
               if (detail.imageUrl) imageUrl = detail.imageUrl;
               firecrawlEnrichs += 1;
@@ -632,6 +631,9 @@ export const searchAndStore = internalAction({
           }
         }
       }
+
+      price = sanitizePrice(price);
+      if (price === undefined) currency = undefined;
 
       const upserted = await ctx.runMutation(internal.findings.upsertFinding, {
         queryId: args.queryId,
@@ -687,13 +689,14 @@ export const scrapeProductPage = internalAction({
     if (source === "web") {
       const free = await tryFreeEnrich(args.url);
       if (free && (free.title || free.summary || free.price !== undefined)) {
+        const price = sanitizePrice(free.price) ?? null;
         result = {
           title: (free.title ?? args.url).slice(0, 200),
           url: args.url,
           source,
           summary: free.summary ?? null,
-          price: free.price ?? null,
-          currency: free.price !== undefined ? "USD" : null,
+          price,
+          currency: price != null ? "USD" : null,
           imageUrl: free.imageUrl ?? null,
         };
       }
@@ -703,12 +706,19 @@ export const scrapeProductPage = internalAction({
       result = await firecrawlScrapeLean(ctx, args.url);
     }
 
+    const price = sanitizePrice(result.price) ?? null;
+    result = {
+      ...result,
+      price,
+      currency: price != null ? (result.currency ?? "USD") : null,
+    };
+
     await ctx.runMutation(internal.findings.upsertFinding, {
       queryId: args.queryId as Id<"openQueries">,
       sessionId: args.sessionId,
       title: result.title,
       url: args.url,
-      price: result.price ?? undefined,
+      price: price ?? undefined,
       currency: result.currency ?? undefined,
       source: result.source,
       summary: result.summary ?? undefined,
@@ -737,20 +747,22 @@ export const scrapePriceOnly = internalAction({
     if (source === "web") {
       const free = await tryFreeEnrich(args.url);
       if (free && free.price !== undefined) {
+        const price = sanitizePrice(free.price) ?? null;
         return {
           title: free.title ?? null,
-          price: free.price,
-          currency: "USD",
+          price,
+          currency: price != null ? "USD" : null,
         };
       }
     }
 
     try {
       const result = await firecrawlScrapeLean(ctx, args.url);
+      const price = sanitizePrice(result.price) ?? null;
       return {
         title: result.title,
-        price: result.price,
-        currency: result.currency,
+        price,
+        currency: price != null ? result.currency : null,
       };
     } catch (error) {
       console.error("Price scrape failed", args.url, error);

@@ -18,6 +18,7 @@ import type * as digests from "../digests.js";
 import type * as findings from "../findings.js";
 import type * as firecrawl from "../firecrawl.js";
 import type * as http from "../http.js";
+import type * as lib_productPrice from "../lib/productPrice.js";
 import type * as lib_searchScope from "../lib/searchScope.js";
 import type * as lib_sessionAuth from "../lib/sessionAuth.js";
 import type * as lib_sessionTitle from "../lib/sessionTitle.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   findings: typeof findings;
   firecrawl: typeof firecrawl;
   http: typeof http;
+  "lib/productPrice": typeof lib_productPrice;
   "lib/searchScope": typeof lib_searchScope;
   "lib/sessionAuth": typeof lib_sessionAuth;
   "lib/sessionTitle": typeof lib_sessionTitle;

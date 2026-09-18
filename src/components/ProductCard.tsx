@@ -6,6 +6,58 @@ import { IconPlus, IconThumbsUp, IconX } from "./icons";
 
 const EXIT_MS = 180;
 
+function ProductImageFallback({
+  showLabel = true,
+}: {
+  showLabel?: boolean;
+}) {
+  return (
+    <div className="product-card-placeholder" aria-hidden="true">
+      <span className="product-card-placeholder-mark">C</span>
+      {showLabel ? (
+        <span className="product-card-placeholder-label">No image</span>
+      ) : null}
+    </div>
+  );
+}
+
+function ProductMedia({
+  url,
+  title,
+  imageUrl,
+  showFallbackLabel = true,
+}: {
+  url: string;
+  title: string;
+  imageUrl: string | null;
+  showFallbackLabel?: boolean;
+}) {
+  const [broken, setBroken] = useState(false);
+  const resolvedUrl = imageUrl && !broken ? imageUrl : null;
+
+  return (
+    <a
+      className="product-card-media"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${title}`}
+    >
+      {resolvedUrl ? (
+        <img
+          key={resolvedUrl}
+          src={resolvedUrl}
+          alt=""
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <ProductImageFallback showLabel={showFallbackLabel} />
+      )}
+    </a>
+  );
+}
+
 export type ProductCardData = {
   _id?: Id<"findings">;
   title: string;
@@ -94,21 +146,11 @@ function ListProductCard({ product, onRemove }: ListProductCardProps) {
     <article
       className={`product-card product-card--list${leaving ? " is-leaving" : ""}`}
     >
-      <a
-        className="product-card-media"
-        href={product.url}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open ${product.title}`}
-      >
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt="" loading="lazy" />
-        ) : (
-          <div className="product-card-placeholder" aria-hidden="true">
-            No image
-          </div>
-        )}
-      </a>
+      <ProductMedia
+        url={product.url}
+        title={product.title}
+        imageUrl={product.imageUrl}
+      />
       <div className="product-card-body">
         <div className="product-card-meta">
           {product.source ? (
@@ -246,21 +288,12 @@ function InlineProductCard({ product, onSetVerdict }: InlineProductCardProps) {
     <article
       className={`product-card product-card--inline${isAccepted ? " is-accepted" : ""}${leaving ? " is-leaving" : ""}`}
     >
-      <a
-        className="product-card-media"
-        href={product.url}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open ${product.title}`}
-      >
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt="" loading="lazy" />
-        ) : (
-          <div className="product-card-placeholder" aria-hidden="true">
-            No image
-          </div>
-        )}
-      </a>
+      <ProductMedia
+        url={product.url}
+        title={product.title}
+        imageUrl={product.imageUrl}
+        showFallbackLabel={false}
+      />
       <div className="product-card-body">
         <strong>
           <a
@@ -345,21 +378,11 @@ function FindingProductCard({
     <article
       className={`product-card product-card--finding${isAccepted ? " is-accepted" : ""}${leaving ? " is-leaving" : ""}`}
     >
-      <a
-        className="product-card-media"
-        href={product.url}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open ${product.title}`}
-      >
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt="" loading="lazy" />
-        ) : (
-          <div className="product-card-placeholder" aria-hidden="true">
-            No image
-          </div>
-        )}
-      </a>
+      <ProductMedia
+        url={product.url}
+        title={product.title}
+        imageUrl={product.imageUrl}
+      />
       <div className="product-card-body">
         <div className="product-card-meta">
           {product.source ? (

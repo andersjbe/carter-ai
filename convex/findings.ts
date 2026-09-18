@@ -6,6 +6,7 @@ import {
   query,
 } from "./_generated/server";
 import { requireOwnedSession, requireQueryForSession } from "./lib/sessionAuth";
+import { sanitizePrice } from "./lib/productPrice";
 
 const sourceValidator = v.union(
   v.literal("amazon"),
@@ -176,6 +177,9 @@ export const upsertFinding = internalMutation({
   handler: async (ctx, args) => {
     await requireQueryForSession(ctx, args.queryId, args.sessionId);
 
+    const price = sanitizePrice(args.price);
+    const currency = price !== undefined ? args.currency : undefined;
+
     const fp = fingerprint(args.url, args.title);
     const existing = await ctx.db
       .query("findings")
@@ -186,13 +190,13 @@ export const upsertFinding = internalMutation({
 
     if (existing) {
       const cheaper =
-        args.price !== undefined &&
+        price !== undefined &&
         existing.price !== undefined &&
-        args.price < existing.price;
+        price < existing.price;
       // Preserve verdict / verdictAt on re-upsert (price/image refresh only).
       await ctx.db.patch(existing._id, {
-        price: args.price ?? existing.price,
-        currency: args.currency ?? existing.currency,
+        price: price ?? existing.price,
+        currency: currency ?? existing.currency,
         summary: args.summary ?? existing.summary,
         imageUrl: args.imageUrl ?? existing.imageUrl,
         seenAt: Date.now(),
@@ -206,8 +210,8 @@ export const upsertFinding = internalMutation({
       sessionId: args.sessionId,
       title: args.title,
       url: args.url,
-      price: args.price,
-      currency: args.currency,
+      price,
+      currency,
       source: args.source,
       summary: args.summary,
       imageUrl: args.imageUrl,
