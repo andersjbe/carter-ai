@@ -13,7 +13,6 @@ import { authClient } from "../lib/auth-client";
 import { AppShell } from "../components/AppShell";
 import ProductCard, {
   type ProductCardData,
-  type ShoppingListSummary,
 } from "../components/ProductCard";
 import {
   SearchScopeEditor,
@@ -24,6 +23,7 @@ import {
   IconPencil,
   IconPlus,
   IconSearch,
+  IconSend,
   IconSidebar,
   IconTrash,
   IconX,
@@ -35,6 +35,24 @@ const CONTEXT_PANEL_KEY = "carter.contextPanelOpen";
 const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const DEFAULT_COMPOSER_PLACEHOLDER =
   "Tell Carter what you’re shopping for…";
+
+/** Split a preference summary into short chips for the context panel. */
+function preferenceChipsFromSummary(summary: string | null | undefined): string[] {
+  const text = summary?.trim();
+  if (!text) return [];
+  const parts = text
+    .split(/[;•|/]+|\.(?:\s|$)/)
+    .map((part) => part.replace(/^[\s,-]+|[\s,-]+$/g, "").trim())
+    .filter((part) => part.length >= 2 && part.length <= 48);
+  if (parts.length >= 2) return parts.slice(0, 8);
+  const commaParts = text
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2 && part.length <= 40);
+  if (commaParts.length >= 2) return commaParts.slice(0, 8);
+  if (text.length <= 64) return [text];
+  return [`${text.slice(0, 56).trimEnd()}…`];
+}
 
 function isMobileViewport() {
   return (
@@ -576,8 +594,6 @@ function MessageBubble({
   onAddStores,
   onSkipStores,
   onSetVerdict,
-  shoppingLists,
-  onAddToList,
   highlighted,
 }: {
   message: UIMessage;
@@ -596,11 +612,6 @@ function MessageBubble({
     findingId: Id<"findings">,
     verdict: "accepted" | "rejected" | null,
   ) => void | Promise<void>;
-  shoppingLists?: ShoppingListSummary[];
-  onAddToList?: (
-    findingId: Id<"findings">,
-    target: Id<"shoppingLists"> | { createName: string },
-  ) => Promise<Id<"shoppingLists">>;
   highlighted?: boolean;
 }) {
   const [text] = useSmoothText(message.text ?? "", {
@@ -647,17 +658,14 @@ function MessageBubble({
             {products.map((product) => (
               <ProductCard
                 key={product.url}
-                variant="chat"
+                variant="inline"
                 product={product}
                 onSetVerdict={onSetVerdict}
-                shoppingLists={shoppingLists}
-                onAddToList={onAddToList}
               />
             ))}
           </div>
           <p className="product-learning-note" role="note">
-            Like or pass these picks — Carter learns your taste for the next
-            hunt.
+            Like or pass here — open Findings for details and lists.
           </p>
         </>
       ) : null}
@@ -787,7 +795,11 @@ function OpenQueryCard({
       <strong>{query.title}</strong>
       <p>{query.brief}</p>
       <div className="query-card-footer">
-        <span className="badge">{query.status}</span>
+        <span
+          className={`badge${query.status === "active" ? " badge-status-active" : ""}`}
+        >
+          {query.status}
+        </span>
         {messageKey ? (
           <button
             type="button"
@@ -1518,6 +1530,12 @@ export default function ChatApp() {
   const knowsSummary =
     profile?.summary?.trim() ||
     "Preferences appear here as Carter learns your taste.";
+  const knowsChips = preferenceChipsFromSummary(profile?.summary ?? null);
+  const hasLearnedPrefs = knowsChips.length > 0;
+
+  function focusComposer() {
+    composerRef.current?.focus();
+  }
 
   const contextPanel =
     contextOpen ? (
@@ -1542,7 +1560,29 @@ export default function ChatApp() {
         <div className="context-stack">
           <section className="side-panel context-section">
             <h3>What Carter knows</h3>
-            <p className="hint knows-summary-text">{knowsSummary}</p>
+            {hasLearnedPrefs ? (
+              <ul className="knows-chips" aria-label={knowsSummary}>
+                {knowsChips.map((chip) => (
+                  <li key={chip} className="knows-chip">
+                    {chip}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="empty-prompt">
+                <p>
+                  Tell Carter what you&apos;re shopping for — preferences show
+                  up here as chips.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-compact"
+                  onClick={focusComposer}
+                >
+                  Start in chat
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="side-panel context-section">
@@ -1558,7 +1598,19 @@ export default function ChatApp() {
             </p>
             <div className="query-list">
               {(openQueries ?? []).length === 0 ? (
-                <p className="empty">No open queries yet.</p>
+                <div className="empty-prompt">
+                  <p>
+                    No open queries yet — ask Carter to hunt for something
+                    specific.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-compact"
+                    onClick={focusComposer}
+                  >
+                    Start a search
+                  </button>
+                </div>
               ) : (
                 (openQueries ?? []).map((query) => {
                   const messageKey = resolveQueryMessageKey(
@@ -1599,12 +1651,24 @@ export default function ChatApp() {
             </p>
             <div className="finding-list">
               {(findings ?? []).length === 0 ? (
-                <p className="empty">Nothing found yet.</p>
+                <div className="empty-prompt">
+                  <p>
+                    Nothing found yet. Once Carter hunts, picks land here for
+                    Like / Pass.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-compact"
+                    onClick={focusComposer}
+                  >
+                    Ask Carter to hunt
+                  </button>
+                </div>
               ) : (
                 (findings ?? []).map((finding) => (
                   <ProductCard
                     key={finding._id}
-                    variant="chat"
+                    variant="finding"
                     product={{
                       _id: finding._id,
                       title: finding.title,
@@ -1938,8 +2002,6 @@ export default function ChatApp() {
                     onAddStores={() => void onAddStores()}
                     onSkipStores={() => void onSkipStores()}
                     onSetVerdict={onSetVerdict}
-                    shoppingLists={shoppingLists ?? undefined}
-                    onAddToList={onAddToList}
                     highlighted={message.key === highlightedMessageKey}
                   />
                 ))
@@ -1948,6 +2010,7 @@ export default function ChatApp() {
             <form className="composer" onSubmit={onSend}>
               <textarea
                 ref={composerRef}
+                rows={1}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder={composerPlaceholder}
@@ -1961,9 +2024,11 @@ export default function ChatApp() {
               />
               <button
                 type="submit"
+                className="composer-send"
                 disabled={!sessionId || sending || !draft.trim()}
+                aria-label={sending ? "Sending…" : "Send"}
               >
-                {sending ? "Sending…" : "Send"}
+                <IconSend />
               </button>
             </form>
           </section>

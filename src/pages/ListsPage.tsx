@@ -217,7 +217,12 @@ export default function ListsPage() {
             {shoppingLists === undefined ? (
               <p className="empty">Loading lists…</p>
             ) : shoppingLists.length === 0 ? (
-              <p className="empty">No lists yet.</p>
+              <div className="empty-prompt">
+                <p>No lists yet — create one above, or save a find from chat.</p>
+                <Link className="btn btn-primary btn-compact" to="/app">
+                  Find gifts in chat
+                </Link>
+              </div>
             ) : (
               shoppingLists.map((list) => (
                 <button
@@ -343,29 +348,29 @@ export default function ListsPage() {
                       </p>
                     )}
                     <form onSubmit={onSaveAlerts}>
-                      <button
-                        type="submit"
-                        className="btn btn-ghost btn-compact"
-                        disabled={
-                          !selectedListId ||
-                          alertBusy ||
-                          !authSession?.user?.email ||
-                          alertsOn
-                        }
-                      >
-                        {alertBusy ? "Saving…" : "Turn on"}
-                      </button>
+                      {alertsOn ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-compact alert-off-btn"
+                          disabled={alertBusy}
+                          onClick={() => void onTurnOffAlerts()}
+                        >
+                          {alertBusy ? "Saving…" : "Turn off"}
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          className="btn btn-ghost btn-compact"
+                          disabled={
+                            !selectedListId ||
+                            alertBusy ||
+                            !authSession?.user?.email
+                          }
+                        >
+                          {alertBusy ? "Saving…" : "Turn on"}
+                        </button>
+                      )}
                     </form>
-                    {alertsOn ? (
-                      <button
-                        type="button"
-                        className="danger-btn alert-off-btn"
-                        disabled={alertBusy}
-                        onClick={() => void onTurnOffAlerts()}
-                      >
-                        Turn off alerts
-                      </button>
-                    ) : null}
                   </div>
                 </details>
               </header>

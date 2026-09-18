@@ -98,7 +98,6 @@ export function AppTopbar({ current }: { current: AppNav }) {
             </Link>
           )}
         </nav>
-        <ThemeToggle />
         <div className="account-menu" ref={menuRef}>
           <button
             type="button"
@@ -132,6 +131,7 @@ export function AppTopbar({ current }: { current: AppNav }) {
               >
                 Profile
               </Link>
+              <ThemeToggle variant="menu" />
               <button
                 type="button"
                 className="account-menu-item"

@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
 
   if (!isPending && session) {
     return <Navigate to="/app" replace />;
@@ -141,7 +142,7 @@ export default function LoginPage() {
         </p>
 
         <button
-          className="btn btn-ghost auth-google"
+          className="btn btn-primary auth-google"
           type="button"
           disabled={anyBusy}
           onClick={() => void onGoogleSignIn()}
@@ -150,75 +151,95 @@ export default function LoginPage() {
           {googleBusy ? "Redirecting…" : "Continue with Google"}
         </button>
 
-        <div className="auth-divider" role="separator">
-          <span>or</span>
-        </div>
-
-        <form className="auth-form" onSubmit={onSubmit}>
-          {mode === "signup" ? (
-            <label>
-              Name
-              <input
-                type="text"
-                autoComplete="name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Alex"
-              />
-            </label>
-          ) : null}
-          <label>
-            Email
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-            />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete={
-                mode === "signup" ? "new-password" : "current-password"
-              }
-              required
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 8 characters"
-            />
-          </label>
-          {mode === "signin" ? (
-            <p className="auth-forgot">
-              <Link to="/forgot-password">Forgot password?</Link>
-            </p>
-          ) : null}
-          {error ? <p className="auth-error">{error}</p> : null}
-          {info ? <p className="auth-info">{info}</p> : null}
-          {needsVerification ? (
-            <button
-              className="btn btn-ghost"
-              type="button"
-              disabled={anyBusy || !email.trim()}
-              onClick={() => void onResendVerification()}
-            >
-              {resendBusy ? "Sending…" : "Resend verification email"}
-            </button>
-          ) : null}
-          <button className="btn btn-primary" type="submit" disabled={anyBusy}>
-            {busy
-              ? mode === "signup"
-                ? "Creating…"
-                : "Signing in…"
-              : mode === "signup"
-                ? "Create account"
-                : "Sign in"}
+        {!showEmailForm ? (
+          <button
+            type="button"
+            className="auth-email-toggle"
+            onClick={() => setShowEmailForm(true)}
+          >
+            or use email instead
           </button>
-        </form>
+        ) : (
+          <>
+            <div className="auth-divider" role="separator">
+              <span>or email</span>
+            </div>
+
+            <form className="auth-form" onSubmit={onSubmit}>
+              {mode === "signup" ? (
+                <label>
+                  Name
+                  <input
+                    type="text"
+                    autoComplete="name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Alex"
+                  />
+                </label>
+              ) : null}
+              <label>
+                Email
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  autoComplete={
+                    mode === "signup" ? "new-password" : "current-password"
+                  }
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="At least 8 characters"
+                />
+              </label>
+              {mode === "signin" ? (
+                <p className="auth-forgot">
+                  <Link to="/forgot-password">Forgot password?</Link>
+                </p>
+              ) : null}
+              {error ? <p className="auth-error">{error}</p> : null}
+              {info ? <p className="auth-info">{info}</p> : null}
+              {needsVerification ? (
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  disabled={anyBusy || !email.trim()}
+                  onClick={() => void onResendVerification()}
+                >
+                  {resendBusy ? "Sending…" : "Resend verification email"}
+                </button>
+              ) : null}
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={anyBusy}
+              >
+                {busy
+                  ? mode === "signup"
+                    ? "Creating…"
+                    : "Signing in…"
+                  : mode === "signup"
+                    ? "Create account"
+                    : "Sign in"}
+              </button>
+            </form>
+          </>
+        )}
+        {!showEmailForm && error ? (
+          <p className="auth-error">{error}</p>
+        ) : null}
+        {!showEmailForm && info ? <p className="auth-info">{info}</p> : null}
 
         <p className="auth-switch">
           {mode === "signup" ? (

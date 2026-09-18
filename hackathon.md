@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-16T12:55:19Z
+- **Last updated:** 2026-09-18T04:12:28Z
 
 ## Log
 
@@ -108,3 +108,9 @@ Committed the ownership, batch list deletion, session cleanup, and fair-cron ind
 
 ### 2026-09-16 - working tree
 Simplified the shopping context panel: Findings cards stack image over text for the narrow column, and What Carter knows shows only the prose summary (no preference chips or show-details toggle). Tightened `updatePreferences` so reply-chip answers land in structured fields with merge-safe upserts (`src/pages/ChatApp.tsx`, `src/index.css`, `convex/carterAgent.ts`, `convex/profiles.ts`). Convex features: mutations, agent tools, realtime queries.
+
+### 2026-09-16 - 2f9b443
+Committed the preference/context panel simplification from the working tree (`convex/carterAgent.ts`, `convex/profiles.ts`, `src/pages/ChatApp.tsx`, `src/index.css`). Convex features: mutations, agent tools.
+
+### 2026-09-17 - working tree
+UI pass across landing, auth, chat, and lists: dark is the brand-default theme; landing uses real lamp photos plus a clearer subhead; login leads with Google and keeps email behind a toggle; ProductCard splits inline/finding/list variants with shortened marketplace titles; chat regains Knows preference chips and empty-state “focus composer” prompts, plus an icon-only send control; Lists uses a single Turn on / Turn off alerts control (`index.html`, `src/lib/theme.ts`, `src/lib/format.ts`, `public/landing/*`, `src/pages/LandingPage.tsx`, `src/pages/LoginPage.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/components/icons.tsx`, `src/components/ThemeToggle.tsx`, `src/index.css`).

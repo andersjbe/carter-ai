@@ -50,15 +50,17 @@ export default function LandingPage() {
         <section className="landing-hero">
           <div className="landing-hero-copy">
             <h1 className="landing-brand">Carter</h1>
+            <p className="landing-subhead">
+              A curious product scout that learns what you want.
+            </p>
             <p className="landing-lede">
-              A curious product scout that learns what you want, searches the
-              sites you choose, and watches for new finds.
+              Searches the sites you choose, and watches for new finds.
             </p>
             <div className="landing-actions">
               <Link className="btn btn-primary" to="/login">
                 Get started
               </Link>
-              <Link className="btn btn-ghost" to="/login?mode=signin">
+              <Link className="landing-actions-link" to="/login?mode=signin">
                 I already have an account
               </Link>
             </div>
@@ -74,18 +76,31 @@ export default function LandingPage() {
               </p>
             </div>
             <div className="landing-preview-products">
+              {/* Photos: Unsplash — Kam Idris (desk) / Adrien Olichon (pendant) */}
               <div className="landing-preview-card">
-                <div className="landing-preview-thumb landing-preview-thumb--a" />
+                <img
+                  className="landing-preview-thumb"
+                  src="/landing/desk-lamp.jpg"
+                  alt=""
+                  width={400}
+                  height={300}
+                />
                 <div className="landing-preview-card-meta">
-                  <span className="landing-preview-title">Arc ceramic lamp</span>
-                  <span className="landing-preview-price">$64</span>
+                  <span className="landing-preview-title">Warm ceramic desk lamp</span>
+                  <span className="landing-preview-price">Under $80</span>
                 </div>
               </div>
               <div className="landing-preview-card">
-                <div className="landing-preview-thumb landing-preview-thumb--b" />
+                <img
+                  className="landing-preview-thumb"
+                  src="/landing/pendant-lamp.jpg"
+                  alt=""
+                  width={400}
+                  height={300}
+                />
                 <div className="landing-preview-card-meta">
-                  <span className="landing-preview-title">Paper shade pendant</span>
-                  <span className="landing-preview-price">$72</span>
+                  <span className="landing-preview-title">Soft pendant light</span>
+                  <span className="landing-preview-price">Warm glow</span>
                 </div>
               </div>
             </div>

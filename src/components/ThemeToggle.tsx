@@ -43,7 +43,13 @@ function IconMoon() {
   );
 }
 
-export default function ThemeToggle({ className }: { className?: string }) {
+export default function ThemeToggle({
+  className,
+  variant = "icon",
+}: {
+  className?: string;
+  variant?: "icon" | "menu";
+}) {
   const [theme, setTheme] = useState<Theme>(() => getPreferredTheme());
 
   useEffect(() => {
@@ -52,11 +58,28 @@ export default function ThemeToggle({ className }: { className?: string }) {
 
   const isDark = theme === "dark";
 
+  function onToggle() {
+    setTheme(toggleTheme());
+  }
+
+  if (variant === "menu") {
+    return (
+      <button
+        type="button"
+        className={className ?? "account-menu-item"}
+        role="menuitem"
+        onClick={onToggle}
+      >
+        Appearance: {isDark ? "Dark" : "Light"}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
       className={className ?? "icon-btn theme-toggle"}
-      onClick={() => setTheme(toggleTheme())}
+      onClick={onToggle}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Light mode" : "Dark mode"}
     >

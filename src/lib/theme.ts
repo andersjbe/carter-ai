@@ -15,13 +15,8 @@ export function getStoredTheme(): Theme | null {
 export function getPreferredTheme(): Theme {
   const stored = getStoredTheme();
   if (stored) return stored;
-  if (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-  return "light";
+  // Dark is the brand default; stored preference still wins when set.
+  return "dark";
 }
 
 export function applyTheme(theme: Theme): void {
