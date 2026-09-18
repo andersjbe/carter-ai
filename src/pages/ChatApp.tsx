@@ -11,6 +11,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { authClient } from "../lib/auth-client";
 import { AppShell } from "../components/AppShell";
+import { ChatIntro } from "../components/ChatIntro";
 import ProductCard, {
   type ProductCardData,
 } from "../components/ProductCard";
@@ -1378,6 +1379,45 @@ export default function ChatApp() {
     return map;
   }, [findings]);
 
+  const contextSummary = useMemo(() => {
+    const allFindings = findings ?? [];
+    const queries = openQueries ?? [];
+    const newFindsCount = allFindings.filter((f) => f.isNew).length;
+    const preferredQuery =
+      queries.find((q) => q.status === "active") ??
+      queries.find((q) => q.status === "gathering") ??
+      queries[0];
+
+    const parts: string[] = [];
+    if (newFindsCount > 0) {
+      parts.push(
+        `${newFindsCount} new find${newFindsCount === 1 ? "" : "s"}`,
+      );
+    } else if (allFindings.length > 0) {
+      parts.push(
+        `${allFindings.length} find${allFindings.length === 1 ? "" : "s"}`,
+      );
+    }
+
+    if (preferredQuery) {
+      const statusLabel =
+        preferredQuery.status === "active"
+          ? "Active"
+          : preferredQuery.status === "gathering"
+            ? "Gathering"
+            : "Paused";
+      const title = preferredQuery.title.trim() || preferredQuery.brief.trim();
+      if (title) {
+        parts.push(`${statusLabel}: ${title}`);
+      }
+    }
+
+    if (parts.length === 0) {
+      return "No active hunt · Tap for shopping context";
+    }
+    return parts.join(" · ");
+  }, [findings, openQueries]);
+
   const rejectedUrls = useMemo(() => {
     const set = new Set<string>();
     for (const url of rejectedUrlList ?? []) {
@@ -1941,33 +1981,21 @@ export default function ChatApp() {
                 </h2>
                 <p>Carter asks first, then hunts.</p>
               </div>
-              <button
-                type="button"
-                className={`icon-btn context-toggle${contextOpen ? " is-active" : ""}`}
-                onClick={toggleContextPanel}
-                aria-pressed={contextOpen}
-                aria-controls="context-panel"
-                aria-label={
-                  isMobile
-                    ? contextOpen
-                      ? "Close context"
-                      : "Open context"
-                    : contextOpen
-                      ? "Hide context panel"
-                      : "Show context panel"
-                }
-                title={
-                  isMobile
-                    ? contextOpen
-                      ? "Close context"
-                      : "Open context"
-                    : contextOpen
-                      ? "Hide context"
-                      : "Show context"
-                }
-              >
-                <IconPanel />
-              </button>
+              {!isMobile ? (
+                <button
+                  type="button"
+                  className={`icon-btn context-toggle${contextOpen ? " is-active" : ""}`}
+                  onClick={toggleContextPanel}
+                  aria-pressed={contextOpen}
+                  aria-controls="context-panel"
+                  aria-label={
+                    contextOpen ? "Hide context panel" : "Show context panel"
+                  }
+                  title={contextOpen ? "Hide context" : "Show context"}
+                >
+                  <IconPanel />
+                </button>
+              ) : null}
             </div>
             <div
               className="messages"
@@ -1977,10 +2005,7 @@ export default function ChatApp() {
               onScroll={onMessagesScroll}
             >
               {(messages ?? []).length === 0 ? (
-                <p className="empty">
-                  Say hello, or tell Carter what you are shopping for. Expect a
-                  few curious questions before any search.
-                </p>
+                <ChatIntro />
               ) : (
                 (messages ?? []).map((message) => (
                   <MessageBubble
@@ -2007,30 +2032,49 @@ export default function ChatApp() {
                 ))
               )}
             </div>
-            <form className="composer" onSubmit={onSend}>
-              <textarea
-                ref={composerRef}
-                rows={1}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={composerPlaceholder}
-                aria-label="Message Carter"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void onSend(event);
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                className="composer-send"
-                disabled={!sessionId || sending || !draft.trim()}
-                aria-label={sending ? "Sending…" : "Send"}
-              >
-                <IconSend />
-              </button>
-            </form>
+            <div className="chat-compose-stack">
+              {isMobile ? (
+                <button
+                  type="button"
+                  className={`context-summary-bar${contextOpen ? " is-open" : ""}`}
+                  onClick={toggleContextPanel}
+                  aria-controls="context-panel"
+                  aria-expanded={contextOpen}
+                  aria-label={`Shopping context: ${contextSummary}`}
+                >
+                  <span className="context-summary-bar-text">
+                    {contextSummary}
+                  </span>
+                  <span className="context-summary-bar-hint" aria-hidden="true">
+                    ⋯
+                  </span>
+                </button>
+              ) : null}
+              <form className="composer" onSubmit={onSend}>
+                <textarea
+                  ref={composerRef}
+                  rows={1}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={composerPlaceholder}
+                  aria-label="Message Carter"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void onSend(event);
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  className="composer-send"
+                  disabled={!sessionId || sending || !draft.trim()}
+                  aria-label={sending ? "Sending…" : "Send"}
+                >
+                  <IconSend />
+                </button>
+              </form>
+            </div>
           </section>
 
           {!isMobile ? contextPanel : null}
