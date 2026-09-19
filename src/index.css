@@ -1124,12 +1124,17 @@ a.app-topbar-brand:hover {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex-shrink: 0;
 }
 
 .chat-header-copy {
+  flex: 1;
   min-width: 0;
+}
+
+.chat-header .context-toggle {
+  flex-shrink: 0;
 }
 
 .chat-header-copy h2,
