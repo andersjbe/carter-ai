@@ -225,7 +225,7 @@ type SearchProductResult = {
 
 const searchProducts = createTool({
   description:
-    "Search product results on the open query's Amazon/Etsy toggles and custom domains only. Prefer listFindings first if you already searched this query. Only call after creating an open query. Call discoverMarketplaces at most once per query, and only when Discover stores (web) is on AND customDomains is still empty AND discovery was never offered — then wait for Add/Skip chips. After the user adds/skips stores or after any product search, do not discover again; just search or refine. Optional marketplace override is amazon or etsy for this call only.",
+    "Search product results on the open query's Amazon/Etsy toggles and custom domains only. Prefer listFindings first if you already searched this query. Only call after creating an open query. When Discover stores (web) is on and discovery has not been offered yet, call discoverMarketplaces first and wait for Add/Skip — searchProducts returns reason discover_first if you skip that step. After the user adds/skips stores, discovery was offered (including empty suggestions), or web is off, search normally. Do not rediscover after searching. Optional marketplace override is amazon or etsy for this call only.",
   inputSchema: z.object({
     queryId: z.string().describe("Open query id returned by createOpenQuery"),
     searchQuery: z
@@ -248,7 +248,8 @@ const searchProducts = createTool({
     stored: number;
     created: number;
     results: SearchProductResult[];
-    reason?: "no_stores";
+    reason?: "no_stores" | "discover_first";
+    queryId?: string;
   }> => {
     const queryId = args.queryId as Id<"openQueries">;
     const openQuery = await ctx.runQuery(internal.openQueries.getInternal, {
@@ -256,6 +257,27 @@ const searchProducts = createTool({
     });
     if (!openQuery || openQuery.sessionId !== ctx.sessionId) {
       throw new Error("Open query not found");
+    }
+
+    const sources = (openQuery.sources ?? [
+      "amazon",
+      "etsy",
+      "web",
+    ]) as MarketplaceSource[];
+    if (sources.includes("web") && openQuery.storeDiscoveryOfferedAt == null) {
+      const existingFindings = await ctx.runQuery(
+        internal.findings.listByQueryInternal,
+        { queryId },
+      );
+      if (existingFindings.findings.length === 0) {
+        return {
+          stored: 0,
+          created: 0,
+          results: [],
+          reason: "discover_first",
+          queryId: args.queryId,
+        };
+      }
     }
 
     let passes;
@@ -317,7 +339,7 @@ type MarketplaceSuggestion = { domain: string; label: string };
 
 const discoverMarketplaces = createTool({
   description:
-    "Offer specialty store chips ONCE per open query, and only before the first product search, when Discover stores (web) is on and customDomains is empty. After Add/Skip, after any searchProducts call, or if this was already offered, do not call again. Never invent domains. Never product-search the open web.",
+    "Offer specialty store chips ONCE per open query, and only before the first product search, when Discover stores (web) is on — even if Amazon, Etsy, or custom domains are already enabled. Existing domains are excluded from suggestions, not a reason to skip. After Add/Skip, after any searchProducts call, or if this was already offered, do not call again. Never invent domains. Never product-search the open web.",
   inputSchema: z.object({
     queryId: z.string().describe("Open query id returned by createOpenQuery"),
     topic: z
@@ -336,8 +358,8 @@ const discoverMarketplaces = createTool({
     skipped?:
       | "web_disabled"
       | "already_offered"
-      | "has_custom_domains"
-      | "already_searched";
+      | "already_searched"
+      | "no_suggestions";
   }> => {
     const queryId = args.queryId as Id<"openQueries">;
     const openQuery = await ctx.runQuery(internal.openQueries.getInternal, {
@@ -360,13 +382,6 @@ const discoverMarketplaces = createTool({
         queryId: args.queryId,
         suggestions: [],
         skipped: "already_offered",
-      };
-    }
-    if ((openQuery.customDomains?.length ?? 0) > 0) {
-      return {
-        queryId: args.queryId,
-        suggestions: [],
-        skipped: "has_custom_domains",
       };
     }
 
@@ -402,9 +417,18 @@ const discoverMarketplaces = createTool({
       },
     );
 
+    // Mark offered after a real Firecrawl attempt (chips or empty) so search can proceed.
     await ctx.runMutation(internal.openQueries.markStoreDiscoveryOffered, {
       queryId,
     });
+
+    if (result.suggestions.length === 0) {
+      return {
+        queryId: args.queryId,
+        suggestions: [],
+        skipped: "no_suggestions",
+      };
+    }
 
     return { queryId: args.queryId, suggestions: result.suggestions };
   },
@@ -553,15 +577,15 @@ Your job:
 1. On the user's first request, ask clarifying questions ONCE (budget, style, constraints, brands, must-haves, etc.) — then stop asking.
 2. CRITICAL UX RULE: That single clarifying turn MUST call offerReplyChoices with matching questions (1–4 preferred, max 5). Each question needs a short prompt label and 2–5 concise tap-friendly options (users can select multiple options per question). Prefer prompt labels that map to preference fields: Budget, Style, Brands, Must-haves, Use case, Category. Never ask clarifying questions without calling offerReplyChoices. Do not add an "Other" option; the UI adds that. Keep the spoken reply warm and brief — the chips carry the structured answers.
 3. After the user answers (or if they already gave a rich brief), do NOT ask another round of clarifying questions and do NOT call offerReplyChoices again. Immediately call updatePreferences: put a short summary AND fill every matching structured field from their reply (budgetMin/budgetMax, styles, categories, useCases, constraints, brandsPrefer/brandsAvoid). Reply-chip lines like "Budget: under $100" or "Style: sleek and modern" MUST become those fields — never summary-only. Then make reasonable assumptions for anything still missing, and create an open shopping query with createOpenQuery ONCE (omit sources/customDomains unless the user asked for specific sites — Profile defaults apply). Reuse that queryId for the rest of this hunt. Do not create another similar open query. Call updatePreferences again whenever the user adds or changes taste details later.
-4. Store discovery (once only): If Discover stores (web) is on and customDomains is empty, call discoverMarketplaces once, briefly ask which specialty stores to add, then STOP and wait. After the user Adds or Skips stores — or if discovery returns skipped — never call discoverMarketplaces again for that query. Never invent domains. Never product-search the open web.
-5. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts when you need fresh results; it only uses Amazon/Etsy toggles and custom domains on the query. After results are shown, continue the conversation about those picks (refine, compare, list) without rediscovering stores or spawning a new open query. Users can edit sites per query in the Open queries panel. Use scrapeProduct sparingly only for promising URLs missing price/image.
+4. Store discovery (once only): If Discover stores (web) is on, call discoverMarketplaces once before the first product search — even when Amazon, Etsy, or Profile custom domains are already enabled (known domains are excluded from chips, not a reason to skip). Briefly ask which specialty stores to add, then STOP and wait. After the user Adds or Skips stores — or if discovery returns skipped (web_disabled / already_offered / already_searched / no_suggestions) — never call discoverMarketplaces again for that query. Never invent domains. Never product-search the open web.
+5. Prefer listFindings before re-searching the same brief — especially after the user liked or passed on products. Search with searchProducts when you need fresh results; it only uses Amazon/Etsy toggles and custom domains on the query. If searchProducts returns reason discover_first, call discoverMarketplaces next (do not invent domains). After results are shown, continue the conversation about those picks (refine, compare, list) without rediscovering stores or spawning a new open query. Users can edit sites per query in the Open queries panel. Use scrapeProduct sparingly only for promising URLs missing price/image.
 6. After tools return products, write a short conversational take: which picks fit and why (a few sentences). The UI already renders product cards (image, price, link, summary) from tool results — do not recreate that catalog in markdown. Do not paste markdown images, numbered product lists, or raw product URLs when cards are shown. Light **bold** emphasis is fine for prose only. Users can like or pass cards in the UI (preference signal via listFindings) and separately add products to shopping lists when they intend to buy.
 7. If the user asks about price-drop email alerts, tell them to open Lists from the top nav, pick a shopping list, and enable alerts there — you cannot toggle alerts from chat.
 8. If the user message says they added stores or skipped extra stores, call searchProducts next on the same queryId (do not rediscover; do not createOpenQuery again).
 
 Rules:
 - Clarifying questions happen at most once per conversation. Never loop on more questionnaires.
-- discoverMarketplaces is at most once per open query, and only before the first search. If skipped/already offered/has stores/already searched, proceed to searchProducts or listFindings — never re-prompt for stores.
+- discoverMarketplaces is at most once per open query, and only before the first search. Call it when web is on even if Amazon/Etsy/custom domains already exist. If skipped/already offered/already searched/no_suggestions, proceed to searchProducts or listFindings — never re-prompt for stores.
 - createOpenQuery is once per shopping need. Reuse the returned queryId. Only forceNew for a clearly different hunt.
 - Do not search on the first message unless the user already provided a rich brief (in that case skip clarifying, create/reuse the query, discover stores if needed, then wait or search).
 - Prefer a few high-quality clarifying questions over a long questionnaire (typically 2–4).
@@ -571,6 +595,7 @@ Rules:
 - Never dump numbered markdown product lists, markdown images, or Price/Summary/Rating bullet blocks — keep the reply to a few sentences of guidance. Prefer referring to picks by name; the cards already carry links and images.
 - Do not call searchProducts repeatedly for the same query unless the user asks for a fresh search or a different marketplace/angle.
 - When listFindings shows accepted picks, prefer similar products (style, brand, price band, use case). Treat rejected picks as hard negatives: never re-pitch those URLs, and avoid near-duplicates or the same disliked traits.
+- If searchProducts returns reason discover_first, call discoverMarketplaces (then wait for chips or proceed if skipped) — do not invent domains or search yet.
 - If searchProducts returns reason no_stores, tell the user to enable Amazon/Etsy or add a site in the Open queries panel — do not loop discovery.
 - If a search fails or returns nothing, say so and suggest refining the brief.`,
   tools: {

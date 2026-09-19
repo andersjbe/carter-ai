@@ -12,7 +12,7 @@
 - **Auth:** Other
 - **AI models:** openai/gpt-4o-mini (Convex AI Gateway)
 - **Started:** 2026-09-06T19:24:04Z
-- **Last updated:** 2026-09-18T04:12:28Z
+- **Last updated:** 2026-09-18T12:52:14Z
 
 ## Log
 
@@ -114,3 +114,15 @@ Committed the preference/context panel simplification from the working tree (`co
 
 ### 2026-09-17 - working tree
 UI pass across landing, auth, chat, and lists: dark is the brand-default theme; landing uses real lamp photos plus a clearer subhead; login leads with Google and keeps email behind a toggle; ProductCard splits inline/finding/list variants with shortened marketplace titles; chat regains Knows preference chips and empty-state “focus composer” prompts, plus an icon-only send control; Lists uses a single Turn on / Turn off alerts control (`index.html`, `src/lib/theme.ts`, `src/lib/format.ts`, `public/landing/*`, `src/pages/LandingPage.tsx`, `src/pages/LoginPage.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/components/icons.tsx`, `src/components/ThemeToggle.tsx`, `src/index.css`).
+
+### 2026-09-17 - eb35a36
+Committed the UI pass from the working tree (`src/pages/LandingPage.tsx`, `src/pages/LoginPage.tsx`, `src/components/ProductCard.tsx`, `src/pages/ChatApp.tsx`, `src/pages/ListsPage.tsx`, `src/lib/theme.ts`, `src/index.css`).
+
+### 2026-09-17 - f4285fc
+Sanitized product prices end to end (`sanitizePrice` + Firecrawl extract) and added ProductCard image fallbacks when scrapes lack media (`convex/lib/productPrice.ts`, `convex/findings.ts`, `convex/firecrawl.ts`, `src/components/ProductCard.tsx`). Convex features: mutations, actions.
+
+### 2026-09-17 - 5860c77
+Added ChatIntro for empty threads, a live shopping-context summary on the mobile toggle, and a tighter compose stack (`src/components/ChatIntro.tsx`, `src/pages/ChatApp.tsx`, `src/index.css`).
+
+### 2026-09-18 - working tree
+Hardened Discover-stores sequencing: `searchProducts` returns `discover_first` until discovery is offered; `discoverMarketplaces` runs even when Amazon/Etsy/custom domains exist, marks offered after empty suggestions, and drops the old skip-on-custom-domains gate. Context Knows chips prefer structured prefs over summary prose; chat layout goes full-bleed with a centered message column (`convex/carterAgent.ts`, `src/pages/ChatApp.tsx`, `src/index.css`). Convex features: agent tools, mutations, realtime queries.

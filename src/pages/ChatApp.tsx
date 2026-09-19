@@ -37,22 +37,139 @@ const MOBILE_LAYOUT_QUERY = "(max-width: 900px)";
 const DEFAULT_COMPOSER_PLACEHOLDER =
   "Tell Carter what you’re shopping for…";
 
-/** Split a preference summary into short chips for the context panel. */
+type ProfilePrefs = {
+  budgetMin?: number;
+  budgetMax?: number;
+  categories?: string[];
+  styles?: string[];
+  brandsAvoid?: string[];
+  brandsPrefer?: string[];
+  constraints?: string[];
+  useCases?: string[];
+  urgency?: string;
+  notes?: string;
+};
+
+function formatBudgetChip(
+  min: number | undefined,
+  max: number | undefined,
+): string | null {
+  if (min === undefined && max === undefined) return null;
+  if (min !== undefined && max !== undefined) {
+    if (min <= 0) return `Under $${Math.round(max)}`;
+    return `$${Math.round(min)}–$${Math.round(max)}`;
+  }
+  if (max !== undefined) return `Under $${Math.round(max)}`;
+  return `From $${Math.round(min!)}`;
+}
+
+function shortenChip(text: string, maxLen = 42): string {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  const cut = trimmed.slice(0, maxLen);
+  const at = cut.lastIndexOf(" ");
+  return `${(at > 16 ? cut.slice(0, at) : cut).trimEnd()}…`;
+}
+
+/** Build context-panel chips from structured prefs (preferred) or summary prose. */
+function preferenceChips(
+  summary: string | null | undefined,
+  prefs: ProfilePrefs | null | undefined,
+): string[] {
+  const fromPrefs = chipsFromPrefs(prefs);
+  if (fromPrefs.length > 0) return fromPrefs;
+  return preferenceChipsFromSummary(summary);
+}
+
+function chipsFromPrefs(prefs: ProfilePrefs | null | undefined): string[] {
+  if (!prefs) return [];
+  const chips: string[] = [];
+  const budget = formatBudgetChip(prefs.budgetMin, prefs.budgetMax);
+  if (budget) chips.push(budget);
+
+  const pushAll = (items: string[] | undefined, prefix?: string) => {
+    for (const item of items ?? []) {
+      const value = item.trim();
+      if (!value) continue;
+      chips.push(prefix ? `${prefix} ${value}` : value);
+    }
+  };
+
+  pushAll(prefs.categories);
+  pushAll(prefs.styles);
+  pushAll(prefs.useCases);
+  pushAll(prefs.constraints);
+  pushAll(prefs.brandsPrefer, "Prefer");
+  pushAll(prefs.brandsAvoid, "Avoid");
+  if (prefs.urgency?.trim()) chips.push(prefs.urgency.trim());
+
+  const seen = new Set<string>();
+  return chips
+    .map((chip) => shortenChip(chip))
+    .filter((chip) => {
+      const key = chip.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return chip.length >= 2;
+    })
+    .slice(0, 10);
+}
+
+/** Fallback when the agent saved summary-only preferences. */
 function preferenceChipsFromSummary(summary: string | null | undefined): string[] {
   const text = summary?.trim();
   if (!text) return [];
+
   const parts = text
     .split(/[;•|/]+|\.(?:\s|$)/)
     .map((part) => part.replace(/^[\s,-]+|[\s,-]+$/g, "").trim())
     .filter((part) => part.length >= 2 && part.length <= 48);
   if (parts.length >= 2) return parts.slice(0, 8);
+
   const commaParts = text
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length >= 2 && part.length <= 40);
   if (commaParts.length >= 2) return commaParts.slice(0, 8);
+
+  const extracted: string[] = [];
+  const need = text.match(
+    /(?:looking for|searching for|needs?)\s+([^.,;]+)/i,
+  );
+  if (need?.[1]) {
+    const phrase = need[1]
+      .split(
+        /\s+(?:to celebrate|for a friend|for my|for his|for her|with a budget|with no|focusing|primarily|suitable|that is|who )\b/i,
+      )[0]
+      ?.trim();
+    if (phrase && phrase.length >= 3) extracted.push(shortenChip(phrase));
+  }
+
+  const budgetMatch = text.match(
+    /(?:budget\s+(?:of\s+|under\s+|between\s+|now\s+expanded\s+to\s+)?)?(?:(?:under|up to)\s+)?\$\s*[\d,]+(?:\s*[-–—to]+\s*\$?\s*[\d,]+)?/i,
+  );
+  if (budgetMatch) {
+    let budget = budgetMatch[0].replace(/\s+/g, " ").trim();
+    budget = budget.replace(
+      /^budget\s+(?:now\s+)?(?:expanded\s+to\s+)?/i,
+      "Budget ",
+    );
+    if (!/^budget\b/i.test(budget)) budget = `Budget ${budget}`;
+    extracted.push(shortenChip(budget, 36));
+  }
+
+  if (extracted.length >= 1) {
+    const seen = new Set<string>();
+    return extracted.filter((chip) => {
+      const key = chip.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   if (text.length <= 64) return [text];
-  return [`${text.slice(0, 56).trimEnd()}…`];
+  return [shortenChip(text, 56)];
 }
 
 function isMobileViewport() {
@@ -1570,7 +1687,10 @@ export default function ChatApp() {
   const knowsSummary =
     profile?.summary?.trim() ||
     "Preferences appear here as Carter learns your taste.";
-  const knowsChips = preferenceChipsFromSummary(profile?.summary ?? null);
+  const knowsChips = preferenceChips(
+    profile?.summary ?? null,
+    profile?.prefs ?? null,
+  );
   const hasLearnedPrefs = knowsChips.length > 0;
 
   function focusComposer() {
